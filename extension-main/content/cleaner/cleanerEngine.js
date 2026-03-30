@@ -286,6 +286,19 @@ function injectMessFeeCheckbox() {
   cards.forEach((card) => {
     if (!card.textContent.includes("Mess Fee")) return;
 
+    // If mess-fee hiding is disabled in the popup, ensure the card stays
+    // visible and don't inject the "Mark as Filled" checkbox at all.
+    if (!shouldHide("mess-fee")) {
+      card.classList.remove(HIDDEN_CLASS);
+      // Remove any previously injected checkbox container
+      if (card.hasAttribute("data-mess-fee-injected")) {
+        const existing = card.querySelector("div[style*='z-index: 999']");
+        if (existing) existing.remove();
+        card.removeAttribute("data-mess-fee-injected");
+      }
+      return;
+    }
+
     // ── Visibility gate ────────────────────────────────────────────────────
     // Show the card ONLY when Scaler's own "Click here" typeform button is
     // present in the DOM.  When the submission window is closed (or hasn't
