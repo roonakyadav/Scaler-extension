@@ -1,0 +1,201 @@
+#scaler-stream-recorder-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#live-video-container, #dvr-video-player {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    position: absolute;
+    top: 0; 
+    left: 0;
+}
+
+#dvr-video-player { 
+    display: none; 
+}
+
+.video-controls-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    padding: 20px;
+    background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 100;
+}
+
+#scaler-stream-recorder-container:hover .video-controls-overlay {
+    opacity: 1;
+}
+
+.timeline-container {
+    width: 100%;
+    height: 6px;
+    background: rgba(255,255,255,0.2);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+}
+
+.timeline-fill {
+    height: 100%;
+    background: #3b82f6;
+    width: 100%;
+    border-radius: 3px;
+    position: absolute;
+    top: 0; 
+    left: 0;
+    pointer-events: none;
+}
+
+.timeline-input {
+    position: absolute;
+    top: -5px; 
+    left: 0;
+    width: 100%;
+    height: 16px;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.left-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.play-btn {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-size: 20px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+}
+
+.time-display {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: #fff;
+}
+
+.live-badge-btn {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #aaa;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.live-badge-btn::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #666;
+}
+
+.live-badge-btn.is-live {
+    color: #fff;
+}
+
+.live-badge-btn.is-live::before {
+    background-color: #ef4444;
+}
+
+/* ========================================
+   Footer Control Panel Status Indicators
+   Integrated into Scaler's .control-panel__actions
+   ======================================== */
+
+.scaler-recorder-footer-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px;
+    margin-right: 8px;
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.recorder-status-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #9ca3af;
+    white-space: nowrap;
+}
+
+.recorder-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #fbbf24; /* amber - connecting */
+    transition: background-color 0.3s;
+}
+
+.recorder-rec-icon {
+    color: #ef4444;
+    font-size: 10px;
+    animation: pulse-recording 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-recording {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.recorder-buffer-icon {
+    font-size: 12px;
+}
+
+.recorder-status-text {
+    font-weight: 500;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Sidebar camera container styling */
+#recorder-sidebar-camera {
+    width: 100%;
+    height: 100%;
+    background: #1a1a1a;
+}
+
+#recorder-sidebar-camera .agora_video_player {
+    object-fit: cover !important;
+}
+
+.agora_video_player { 
+    object-fit: contain !important; 
+}
