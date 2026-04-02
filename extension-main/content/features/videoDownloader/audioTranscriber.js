@@ -6,6 +6,12 @@
 class AudioTranscriber {
   constructor(logFn) {
     this.log = logFn || (() => {});
+    this.BACKEND = "https://scalerbackend.vercel.app";
+    // this.BACKEND = "http://localhost:3001";
+    this.AUTH_HEADERS = {
+      Authorization:
+        "Bearer Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345",
+    };
   }
 
   /**
@@ -14,11 +20,7 @@ class AudioTranscriber {
   async init() {
     this.log("Checking Backend API availability...");
     try {
-      // For testing use http://localhost:3000/
-      const res = await fetch("https://scalerbackend.vercel.app/", {
-        method: "GET",
-      });
-
+      const res = await fetch(`${this.BACKEND}/`, { method: "GET" });
       if (res.ok) {
         this.log(
           "✅ Backend API is active. Will use remote API for fast transcription.",
@@ -30,6 +32,60 @@ class AudioTranscriber {
       throw new Error("Backend API is unavailable");
     }
     throw new Error("Backend API is unavailable");
+  }
+
+  // ── Cache helpers ──
+
+  /**
+   * Check MongoDB cache via backend.
+   * Returns the cached transcript text string if found, or null.
+   */
+  async checkCache(title) {
+    if (!title) return null;
+    try {
+      const res = await fetch(
+        `${this.BACKEND}/api/transcript?title=${encodeURIComponent(title)}`,
+        { method: "GET", headers: this.AUTH_HEADERS },
+      );
+      if (res.status === 404) return null; // not cached
+      if (!res.ok) {
+        this.log(
+          `⚠ Cache lookup HTTP ${res.status} — proceeding without cache.`,
+        );
+        return null;
+      }
+      const data = await res.json();
+      return data.cached ? data.text : null;
+    } catch (e) {
+      this.log(
+        `⚠ Cache lookup failed: ${e.message} — proceeding without cache.`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Save a newly generated transcript to the backend cache.
+   * Fire-and-forget — failures are logged but don't block the user.
+   */
+  async saveToCache(title, text) {
+    if (!title || !text) return;
+    try {
+      const res = await fetch(`${this.BACKEND}/api/transcript/save`, {
+        method: "POST",
+        headers: { ...this.AUTH_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ title, text }),
+      });
+      if (res.ok) {
+        this.log("✅ Transcript saved to cache for future requests.");
+      } else {
+        this.log(
+          `⚠ Cache save returned HTTP ${res.status} — transcript not cached.`,
+        );
+      }
+    } catch (e) {
+      this.log(`⚠ Cache save failed: ${e.message}`);
+    }
   }
 
   // ── Anti-hallucination helpers ──
@@ -67,8 +123,22 @@ class AudioTranscriber {
   }
 
   // ── Main Entry ──
-  async transcribe(audioBuffer, onProgress) {
-    return await this.transcribeRemote(audioBuffer, onProgress);
+  /**
+   * @param {ArrayBuffer} audioBuffer
+   * @param {function}    onProgress
+   * @param {string}      [title]     - lecture title used for cache lookup/save
+   */
+  async transcribe(audioBuffer, onProgress, title) {
+    // 1. Generate via Whisper
+    const text = await this.transcribeRemote(audioBuffer, onProgress);
+
+    // 2. Save to cache in background (non-blocking)
+    if (title && text) {
+      this.log("💾 Saving transcript to cache...");
+      this.saveToCache(title, text); // intentionally not awaited
+    }
+
+    return text;
   }
 
   // ── Remote Transcription ── //
@@ -77,7 +147,7 @@ class AudioTranscriber {
 
     // Keep chunks well under Lemonfox's limit to avoid 413 errors.
     // 4 MB per chunk is a safe ceiling (Lemonfox rejects ~10 MB+).
-    const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
+    const CHUNK_SIZE = 48 * 1024 * 1024; // 950 MB
     const MAX_RETRIES = 3;
     const INTER_CHUNK_DELAY_MS = 800; // avoid hammering the API
 
@@ -95,29 +165,40 @@ class AudioTranscriber {
 
       // Use audio/mpeg (.mp3) — matches the audio output format
       const blob = new Blob([chunk], { type: "audio/mpeg" });
-      const file = new File([blob], `audio_chunk_${i}.mp3`, {
-        type: "audio/mpeg",
-      });
-
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("model", "whisper-1");
 
       let success = false;
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-          const response = await fetch(
-            // For testing use http://localhost:3000/api/transcribe
-            "https://scalerbackend.vercel.app/api/transcribe",
+          // 1. Get Pre-signed URL
+          const urlRes = await fetch(
+            `${this.BACKEND}/api/transcribe/upload-url`,
             {
-              method: "POST",
-              headers: {
-                Authorization:
-                  "Bearer Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345",
-              },
-              body: formData,
+              method: "GET",
+              headers: this.AUTH_HEADERS,
             },
           );
+          if (!urlRes.ok)
+            throw new Error("Failed to get upload URL from backend");
+          const { uploadUrl, path, audioUrl } = await urlRes.json();
+
+          // 2. Upload file directly to Supabase storage
+          const uploadRes = await fetch(uploadUrl, {
+            method: "PUT",
+            body: blob,
+            headers: { "Content-Type": "audio/mpeg" },
+          });
+          if (!uploadRes.ok)
+            throw new Error("Failed to upload chunk to Supabase storage");
+
+          // 3. Initiate transcription via Vercel passing URL
+          const response = await fetch(`${this.BACKEND}/api/transcribe`, {
+            method: "POST",
+            headers: {
+              ...this.AUTH_HEADERS,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ audioUrl, path }),
+          });
 
           if (!response.ok) {
             const errText = await response.text();

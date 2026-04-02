@@ -358,42 +358,62 @@ startBtn.addEventListener("click", async () => {
     // ── TRANSCRIPT MODE ──
     if (downloadType === "transcript") {
       const startTime = Date.now();
-      statusText.innerText = "Phase 1/3: Downloading audio...";
-
-      // Download audio into memory
-      const audioExtractor = new TSAudioExtractor();
-      const audioBuffer = await downloadToMemory(segments, audioExtractor);
-
-      // ── Reset progress bar for Phase 2 ──
-      progressBar.style.width = "0%";
-      chunksText.innerText = "—";
-      percentText.innerText = "0%";
-
-      // Initialize Transcriber (Checks Lemonfox API availability)
-      statusText.innerText = "Phase 2/3: Initializing Whisper AI...";
       const transcriber = new AudioTranscriber(log);
-      await transcriber.init();
+      let transcript = null;
 
-      // ── Reset progress bar for Phase 3 ──
-      progressBar.style.width = "0%";
-      chunksText.innerText = "0 / 0 segments";
-      percentText.innerText = "0%";
+      // 1. Check Cache FIRST before downloading audio stream
+      if (videoTitle) {
+        statusText.innerText = "Phase 1/3: Checking cache...";
+        log(`🔍 Checking transcript cache for: "${videoTitle}"...`);
+        transcript = await transcriber.checkCache(videoTitle);
+        if (transcript) {
+          log("⚡ Cache hit! Returning cached transcript — no downloading needed.");
+          progressBar.style.width = "100%";
+          chunksText.innerText = "—";
+          percentText.innerText = "100%";
+        } else {
+          log("Cache miss — proceeding to download and transcribe.");
+        }
+      }
 
-      // Transcribe
-      statusText.innerText = "Phase 3/3: Transcribing (this takes a while)...";
-      const transcript = await transcriber.transcribe(
-        audioBuffer,
-        (pct, current, total) => {
-          progressBar.style.width = pct.toFixed(1) + "%";
-          chunksText.innerText = `${current} / ${total} segments`;
-          percentText.innerText = `${pct.toFixed(1)}%`;
-        },
-      );
+      if (!transcript) {
+        statusText.innerText = "Phase 1/3: Downloading audio...";
 
-      if (!transcript || transcript.trim().length === 0) {
-        throw new Error(
-          "Transcription produced no text. Audio may be silent or unsupported.",
+        // Download audio into memory
+        const audioExtractor = new TSAudioExtractor();
+        const audioBuffer = await downloadToMemory(segments, audioExtractor);
+
+        // ── Reset progress bar for Phase 2 ──
+        progressBar.style.width = "0%";
+        chunksText.innerText = "—";
+        percentText.innerText = "0%";
+
+        // Initialize Transcriber (Checks Lemonfox API availability)
+        statusText.innerText = "Phase 2/3: Initializing Whisper AI...";
+        await transcriber.init();
+
+        // ── Reset progress bar for Phase 3 ──
+        progressBar.style.width = "0%";
+        chunksText.innerText = "0 / 0 segments";
+        percentText.innerText = "0%";
+
+        // Transcribe
+        statusText.innerText = "Phase 3/3: Transcribing (this takes a while)...";
+        transcript = await transcriber.transcribe(
+          audioBuffer,
+          (pct, current, total) => {
+            progressBar.style.width = pct.toFixed(1) + "%";
+            chunksText.innerText = `${current} / ${total} segments`;
+            percentText.innerText = `${pct.toFixed(1)}%`;
+          },
+          videoTitle || null,  // title for cache save
         );
+
+        if (!transcript || transcript.trim().length === 0) {
+          throw new Error(
+            "Transcription produced no text. Audio may be silent or unsupported.",
+          );
+        }
       }
 
       // Save transcript as .txt

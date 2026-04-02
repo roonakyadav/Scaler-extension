@@ -18,6 +18,10 @@ Credits - [PHATWalrus](https://github.com/PHATWalrus)
 
 Download recorded lectures directly from the Scaler recordings page as **audio**, **video**, or **transcript**
 
+## 🔴 Live Stream Recorder & ⏪ DVR
+
+Rewind the live lecture.
+
 ## 📅 Google Calendar Sync
 
 Automatically adds your upcoming Scaler classes directly to your Google
@@ -114,6 +118,10 @@ extension-main/
     │   │   ├── videoProcessor.js     ← Concurrent HLS downloader engine
     │   │   ├── audioTranscriber.js   ← Lemonfox API transcription engine
     │   │   └── modeBadge.js          ← Audio/Video/Transcript mode badge
+    │   ├── liveStreamRecorder/ ← Live recording & DVR module
+    │   │   ├── liveStreamRecorder.js ← Main logic & UI injection
+    │   │   ├── recorderBridge.js     ← Page context Agora handler
+    │   │   └── liveStreamRecorder.css ← Custom player styles
     │   ├── problemSearch, practiceMode, leetcodeLink, spotlightSearch,
     │   │   joinClassButton, companionBypass, subjectSort, contestLeaderboard
     └── utils/               ← domUtils, stringUtils

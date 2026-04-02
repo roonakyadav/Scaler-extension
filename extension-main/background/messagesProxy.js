@@ -52,7 +52,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: message.email }),
-    }).catch(() => { /* fail silently */ });
+    }).catch(() => {
+      /* fail silently */
+    });
 
     // No return true — we're not sending a response
   }
@@ -63,13 +65,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     fetch(`${BACKEND_BASE_URL}/api/users/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: message.email, type: message.downloadType }),
-    }).catch(() => { /* fail silently */ });
+      body: JSON.stringify({
+        email: message.email,
+        type: message.downloadType,
+      }),
+    }).catch(() => {
+      /* fail silently */
+    });
 
     // No return true — fire-and-forget
   }
-
-
 
   // ── Proxy button click to backend ────────────────────────
   // Content scripts can't make cross-origin requests to our
