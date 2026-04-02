@@ -1,0 +1,58 @@
+# Scaler++ Feature Technical Details
+
+This document provides a technical overview of how each major feature is implemented within the Scaler++ extension. Features that solely rely on CSS/DOM element hiding are excluded.
+
+## ⬇️ Lecture Downloader & 📝 AI Transcription
+
+**Description:** Allows downloading recorded lectures as audio, video, or fetching an AI transcript.
+**Implementation:** A DOM observer waits for the `.vp-controls` class indicating a recorded lecture page, then injects a custom dropdown button into the header. When triggered, it communicates with the background service worker to capture the underlying M3U8 streaming link. For transcription requests, it utilizes a direct-to-storage architecture where the client bypasses the core backend and uploads the large audio file directly to Supabase S3 via pre-signed URLs. Once transcribed by the Lemonfox API, the Vercel backend caches the resulting text in a MongoDB database. This reduces bandwidth costs and ensures that subsequent transcript requests for the same lecture are served instantly without reprocessing.
+
+## 🔴 Live Stream Recorder & ⏪ DVR
+
+**Description:** Enables recording of live classes with a DVR capability to seek back and play while the session is ongoing.
+**Implementation:** Injects an SDK bridge (`agora-sdk.js` and `recorderBridge.js`) to capture the active Agora video/audio streams directly from the page context. It intercepts the stream data, pipes it into a `MediaRecorder` instance inside the extension content script, and tracks video blobs incrementally. When a user requests DVR payback, it creates a blob URL (`URL.createObjectURL()`) to play recorded chunks through a custom overlay `<video>` element.
+
+## 📅 Google Calendar Sync
+
+**Description:** Automatically synchronizes scheduled classes to Google Calendar.
+**Implementation:** Utilizes an alarm (`chrome.alarms`) running every 24 hours. It fetches the mentee's upcoming events from the `https://www.scaler.com/academy/mentee/events/` endpoint. Using `chrome.identity.getAuthToken` (or a fallback OAuth web flow), it obtains a Google calendar access token and POSTs the filtered `lesson` events to the user's primary calendar using the Google Calendar API V3.
+
+## 🛡️ Smart Companion Bypass
+
+**Description:** Bypasses Scaler's companion-mode restriction when joining via restrictive campus WiFi networks.
+**Implementation:** Upon detecting navigation to a `/session?joinSession=1` URL, it leverages `chrome.declarativeNetRequest` to dynamically inject IP-spoofing HTTP headers (e.g., `X-Forwarded-For`, `X-Real-IP`, `CF-Connecting-IP`) using a random IP from a predefined pool. These rules stay active for ~5 seconds to authenticate the session, then auto-deactivate to prevent browser overhead.
+
+## 🏆 Contest Leaderboard
+
+**Description:** Enables viewing the ongoing leaderboard during an active contest.
+**Implementation:** Locates the disabled "View Leaderboard" `div` snippet. Fetches the active contest metadata JSON using the `https://www.scaler.com/api/v2/classroom/{contestId}/contest` endpoint to capture the `alias` slug. Finally, it modifies the DOM to replace the non-clickable container with an anchor (`<a>`) tag routing to `/contest/{alias}/scoreboard`.
+
+## 🔍 Global Spotlight Search
+
+**Description:** An Apple Spotlight-like floating search overlay for navigating the dashboard.
+**Implementation:** Listens for a global hotkey (`Alt + /` or `Option + /`), injecting a custom floating modal interface. Upon user input, it queries Scaler's `search-with-query` API endpoint. Includes debouncing (300ms) and handles `AbortController` cancellation to prevent race conditions during rapid typing. Search results map into generated DOM snippets for navigation directly via click or arrow keys.
+
+## 🚀 Direct Join Session
+
+**Description:** Provides a direct "Join Session" link for active classes directly on dashboard cards.
+**Implementation:** Checks the DOM for parsed active dashboard date tabs and scheduled times. If the class is live, it replaces the "View Details" `span` tag on the class card with a dynamically generated anchor tag pointing directly to the `${classHref}/session?joinSession=1` URL.
+
+## 📚 Subject Sort
+
+**Description:** Separates class subjects into "Core" and "Other" on the curriculum page.
+**Implementation:** Matches curriculum tile title strings (`._29EfoWpTY6mSoc0URgsgPl`) against a predefined array of keywords (e.g., `club`, `revision`, `workshop`). It modifies the DOM to reorder the Flexbox/Grid by appending the matched "Other" nodes to the end of the container, while dynamically injecting visual "Core" or "Other" badges and re-indexing the subject counters.
+
+## 🔗 LeetCode Integration for Assignments
+
+**Description:** Instantly maps assignment problems to LeetCode, injecting a direct link alongside the problem title.
+**Implementation:** Extracts the problem title, sanitizes it (removing "Q1.", "Unsolved", etc.), and checks LeetCode's GraphQL API (`https://leetcode.com/graphql`) or falls back to a Google Search (`site:leetcode.com/problems`). To bypass CORS, network requests are routed through the background script. Validated links are stored in `chrome.storage.local` with a 30-day TTL for immediate retrieval and caching.
+
+## 🎯 Practice Mode
+
+**Description:** Auto-resets code editor state if an assignment is unvisited for more than 5 hours to prevent spoilers.
+**Implementation:** Intercepts the assignment problem URL (`/class/:id/assignment/problems/:id`), tracking the last visit timestamp via `chrome.storage.local`. If 5 hours have passed, it locates and simulates clicks on the `cr-icon-refresh` reload button and the subsequent confirmation modal's "Reset!" button to clear the persistent IDE state.
+
+## 🔍 Instant Problem Search
+
+**Description:** A custom problem search filter on the dashboard.
+**Implementation:** Injects a custom search bar overlay on the problems page (`/academy/mentee-dashboard/problems`) catching the `/` keystroke. Uses Javascript to read and sanitize problem details (name, topic, completion status) from the DOM row text. As the user types, it selectively applies CSS classes (`scaler-search-hidden`) to toggle row visibility, updates counters, and dynamically replaces innerHTML with a regex to highlight the matched substring.
