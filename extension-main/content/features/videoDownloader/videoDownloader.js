@@ -170,8 +170,14 @@ class VideoDownloader {
     // ── Fire-and-forget download tracking ──────────────────────
     chrome.storage.sync.get(["scaler_user"], (result) => {
       const email = result?.scaler_user?.email;
+      const lectureTitle = document.title || "";
       if (email && chrome.runtime?.id) {
-        chrome.runtime.sendMessage({ action: "trackDownload", email, downloadType: type });
+        chrome.runtime.sendMessage({ 
+          action: "trackDownload", 
+          email, 
+          downloadType: type,
+          lecture: lectureTitle 
+        });
       }
     });
 
