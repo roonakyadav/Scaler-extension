@@ -5,8 +5,8 @@
 // ============================================================
 
 // Base URL for the backend API (toggle for dev / prod)
-// const BACKEND_BASE_URL = "https://scalerbackend.vercel.app";
-const BACKEND_BASE_URL = "http://localhost:3001";
+const BACKEND_BASE_URL = "https://scalerbackend.vercel.app";
+// const BACKEND_BASE_URL = "http://localhost:3001";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // ── Fetch custom messages ────────────────────────────────
