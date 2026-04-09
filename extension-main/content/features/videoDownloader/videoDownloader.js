@@ -167,20 +167,6 @@ class VideoDownloader {
     btn.innerHTML =
       '<span style="font-size:12px; font-weight:bold;">...</span>';
 
-    // ── Fire-and-forget download tracking ──────────────────────
-    chrome.storage.sync.get(["scaler_user"], (result) => {
-      const email = result?.scaler_user?.email;
-      const lectureTitle = document.title || "";
-      if (email && chrome.runtime?.id) {
-        chrome.runtime.sendMessage({ 
-          action: "trackDownload", 
-          email, 
-          downloadType: type,
-          lecture: lectureTitle 
-        });
-      }
-    });
-
     chrome.runtime.sendMessage({ type: "GET_VIDEO_URL" }, (response) => {
       // Must check lastError first — if the background SW is inactive,
       // Chrome sets this and throws if we don't read it.

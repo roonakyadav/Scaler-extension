@@ -50,6 +50,27 @@ if (!m3u8Url) {
   }
 }
 
+// ── Fire-and-forget download tracking (called only after success) ──
+
+function trackCompletedDownload(type) {
+  try {
+    chrome.storage.sync.get(["scaler_user"], (result) => {
+      const email = result?.scaler_user?.email;
+      const lectureTitle = videoTitle || "";
+      if (email && chrome.runtime?.id) {
+        chrome.runtime.sendMessage({
+          action: "trackDownload",
+          email,
+          downloadType: type,
+          lecture: lectureTitle,
+        });
+      }
+    });
+  } catch (_) {
+    /* fail silently — tracking should never break downloads */
+  }
+}
+
 // ── Helpers ──
 
 async function fetchText(url) {
@@ -325,9 +346,9 @@ function getSuggestedName(ext) {
   if (videoTitle) {
     const slug = videoTitle
       .replace(/[\\/:*?"<>|]/g, "") // strip illegal filename chars
-      .replace(/\s+/g, "_")          // spaces → underscores
-      .substring(0, 80)              // cap length
-      .replace(/_+$/, "");           // trim trailing underscores
+      .replace(/\s+/g, "_") // spaces → underscores
+      .substring(0, 80) // cap length
+      .replace(/_+$/, ""); // trim trailing underscores
     if (slug) return `${slug}.${ext}`;
   }
   return `Scaler_Lecture.${ext}`;
@@ -367,7 +388,9 @@ startBtn.addEventListener("click", async () => {
         log(`🔍 Checking transcript cache for: "${videoTitle}"...`);
         transcript = await transcriber.checkCache(videoTitle);
         if (transcript) {
-          log("⚡ Cache hit! Returning cached transcript — no downloading needed.");
+          log(
+            "⚡ Cache hit! Returning cached transcript — no downloading needed.",
+          );
           progressBar.style.width = "100%";
           chunksText.innerText = "—";
           percentText.innerText = "100%";
@@ -398,7 +421,8 @@ startBtn.addEventListener("click", async () => {
         percentText.innerText = "0%";
 
         // Transcribe
-        statusText.innerText = "Phase 3/3: Transcribing (this takes a while)...";
+        statusText.innerText =
+          "Phase 3/3: Transcribing (this takes a while)...";
         transcript = await transcriber.transcribe(
           audioBuffer,
           (pct, current, total) => {
@@ -406,7 +430,7 @@ startBtn.addEventListener("click", async () => {
             chunksText.innerText = `${current} / ${total} segments`;
             percentText.innerText = `${pct.toFixed(1)}%`;
           },
-          videoTitle || null,  // title for cache save
+          videoTitle || null, // title for cache save
         );
 
         if (!transcript || transcript.trim().length === 0) {
@@ -433,6 +457,9 @@ startBtn.addEventListener("click", async () => {
       statusText.innerText = `🎉 Transcript Complete! (${wordCount} words, ${elapsed} min)`;
       progressBar.style.width = "100%";
       progressBar.style.background = "#10b981";
+
+      // ── Track completed download ──────────────────────────────
+      trackCompletedDownload("transcript");
       return;
     }
 
@@ -449,7 +476,9 @@ startBtn.addEventListener("click", async () => {
     }
 
     statusText.innerText = `Downloading ${downloadType} (${CONCURRENCY}x parallel)...`;
-    log("Downloading to memory — save dialog will appear after download completes.");
+    log(
+      "Downloading to memory — save dialog will appear after download completes.",
+    );
 
     const memBuffer = await downloadToMemory(segments, audioExtractor);
     const blob = new Blob([memBuffer], { type: mimeType });
@@ -459,8 +488,7 @@ startBtn.addEventListener("click", async () => {
     // save location *after* seeing 100% progress — same feel as transcript mode.
     // Brave / Firefox fall through to the blob URL fallback automatically.
     const supportsFilePicker =
-      typeof window.showSaveFilePicker === "function" &&
-      !navigator.brave;
+      typeof window.showSaveFilePicker === "function" && !navigator.brave;
 
     let saved = false;
     if (supportsFilePicker) {
@@ -469,7 +497,8 @@ startBtn.addEventListener("click", async () => {
           suggestedName: getSuggestedName(ext),
           types: [
             {
-              description: downloadType === "audio" ? "Audio File" : "Video File",
+              description:
+                downloadType === "audio" ? "Audio File" : "Video File",
               accept:
                 downloadType === "audio"
                   ? { "audio/mpeg": [".mp3"] }
@@ -509,6 +538,9 @@ startBtn.addEventListener("click", async () => {
     log(`✅ Download triggered in ${elapsed}s! Check your Downloads folder.`);
     statusText.innerText = `🎉 Download Complete! (${elapsed}s)`;
     progressBar.style.background = "#28a745";
+
+    // ── Track completed download ──────────────────────────────
+    trackCompletedDownload(downloadType);
   } catch (err) {
     log(`❌ Error: ${err.message}`);
     console.error(err);
