@@ -60,18 +60,24 @@ class ProblemPicker {
 
 async function initProblemPicker() {
   // Check if feature is enabled in settings
-  if (typeof currentSettings !== 'undefined' && !currentSettings['problem-picker']) {
+  if (
+    typeof currentSettings !== "undefined" &&
+    !currentSettings["problem-picker"]
+  ) {
     return;
   }
 
   // Look for the "Practice" section header
   const sectionHeaders = document.querySelectorAll(".section-header__content");
-  
+
   for (const header of sectionHeaders) {
     const title = header.querySelector(".section-header__title");
     if (title && title.textContent.trim() === "Practice") {
       // Guard: already injected in this specific header?
-      if (header.dataset.pickerInjected === "true" || header.querySelector(".scaler-pick-random-btn")) {
+      if (
+        header.dataset.pickerInjected === "true" ||
+        header.querySelector(".scaler-pick-random-btn")
+      ) {
         continue;
       }
 
@@ -81,18 +87,16 @@ async function initProblemPicker() {
       // Add the "Pick random" button
       const pickButton = document.createElement("button");
       pickButton.className = "scaler-pick-random-btn";
-      pickButton.innerHTML = `
-        <span style="margin-right: 6px;">🎲</span> Pick Random
-      `;
-      
+      pickButton.innerHTML = `Pick Random`;
+
       const picker = new ProblemPicker();
 
       pickButton.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        
+
         const originalText = pickButton.innerHTML;
-        pickButton.innerHTML = "🎲 Fetching...";
+        pickButton.innerHTML = "Fetching...";
         pickButton.disabled = true;
 
         try {
@@ -105,7 +109,9 @@ async function initProblemPicker() {
           }
         } catch (err) {
           console.error("Scaler++: Error picking random problem:", err);
-          alert("Scaler++: Failed to fetch problems. Please make sure you are logged in to Scaler.");
+          // alert(
+          //   "Scaler++: Failed to fetch problems. Please make sure you are logged in to Scaler.",
+          // );
         } finally {
           pickButton.innerHTML = originalText;
           pickButton.disabled = false;

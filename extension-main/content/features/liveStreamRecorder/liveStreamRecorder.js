@@ -922,6 +922,24 @@ class LiveStreamRecorder {
 
     // Command bridge to cleanup
     this.sendCommand("cleanup");
+
+    // ── Fix #5: release all memory ──────────────────────────────────
+    // Drop chunk references so GC can reclaim the recording buffer
+    this.recordedChunks = [];
+    this.recordedSize = 0;
+
+    // Revoke the DVR blob URL to free the in-memory blob
+    if (this.dvrBlobUrl) {
+      URL.revokeObjectURL(this.dvrBlobUrl);
+      this.dvrBlobUrl = null;
+    }
+
+    // Null out the UI cache so removed DOM elements aren't kept alive
+    this.ui = null;
+    this.originalSidebarContent = null;
+    this.connectionErrorObserver = null;
+    this.bridgeEventHandler = null;
+    this.keydownHandler = null;
   }
 }
 

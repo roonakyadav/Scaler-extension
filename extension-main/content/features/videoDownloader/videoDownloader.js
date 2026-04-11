@@ -30,8 +30,12 @@ class VideoDownloader {
         const existing = document.getElementById("scaler-video-downloader");
         if (!msg.value && existing) {
           existing.remove();
+          // ── Fix #1: disconnect observer when feature is disabled ──
+          this._observer?.disconnect();
+          this._observer = null;
         } else if (msg.value) {
           this.checkAndInject();
+          this._startObserver();
         }
       }
     });
@@ -40,11 +44,25 @@ class VideoDownloader {
       this.checkAndInject();
     }
 
-    // Observe DOM mutations for SPA navigation
-    const observer = new MutationObserver(() => {
-      if (this.enabled) this.checkAndInject();
+    this._startObserver();
+  }
+
+  _startObserver() {
+    // ── Fix #1: debounced MutationObserver, stored for disconnect ──
+    if (this._observer) return; // already watching
+    let _debounceTimer = null;
+    this._observer = new MutationObserver(() => {
+      clearTimeout(_debounceTimer);
+      _debounceTimer = setTimeout(() => {
+        if (
+          this.enabled &&
+          !document.getElementById("scaler-video-downloader")
+        ) {
+          this.checkAndInject();
+        }
+      }, 300);
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    this._observer.observe(document.body, { childList: true, subtree: true });
   }
 
   checkAndInject() {
@@ -139,10 +157,14 @@ class VideoDownloader {
       menu.style.display = menu.style.display === "none" ? "block" : "none";
     };
 
-    // Close Menu on outside click
-    document.addEventListener("click", () => {
+    // ── Fix #2: remove stale outside-click handler before adding a new one ──
+    if (this._outsideClickHandler) {
+      document.removeEventListener("click", this._outsideClickHandler);
+    }
+    this._outsideClickHandler = () => {
       menu.style.display = "none";
-    });
+    };
+    document.addEventListener("click", this._outsideClickHandler);
 
     // Insert before the original first action (usually leaderboard trophy icon)
     headerActions.insertBefore(container, headerActions.firstChild);

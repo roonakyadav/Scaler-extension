@@ -99,6 +99,11 @@ function initSubjectSort() {
 
   coreSubjects.forEach(processDiv("core"));
   otherSubjects.forEach(processDiv("other"));
+
+  // Start the observer now that we've confirmed we're on the right page
+  // with the feature enabled. Previously this was called unconditionally
+  // at module load, attaching a body observer on every Scaler page.
+  observeSubjectList();
 }
 
 function restoreSubjectSort() {
@@ -138,6 +143,3 @@ function observeSubjectList() {
   observer.observe(document.body, { childList: true, subtree: true });
   window._subjectSortObserver = observer;
 }
-
-// Global initialization hooked by content.js
-setTimeout(observeSubjectList, 1500);
