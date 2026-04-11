@@ -39,12 +39,13 @@ class AudioTranscriber {
   /**
    * Check MongoDB cache via backend.
    * Returns the cached transcript text string if found, or null.
+   * @param {string} slug - unique identifier (slug) for the lecture
    */
-  async checkCache(title) {
-    if (!title) return null;
+  async checkCache(slug) {
+    if (!slug) return null;
     try {
       const res = await fetch(
-        `${this.BACKEND}/api/transcript?title=${encodeURIComponent(title)}`,
+        `${this.BACKEND}/api/transcript?slug=${encodeURIComponent(slug)}`,
         { method: "GET", headers: this.AUTH_HEADERS },
       );
       if (res.status === 404) return null; // not cached
@@ -67,14 +68,17 @@ class AudioTranscriber {
   /**
    * Save a newly generated transcript to the backend cache.
    * Fire-and-forget — failures are logged but don't block the user.
+   * @param {string} slug  - unique identifier (slug) for the lecture
+   * @param {string} title - human-readable lecture title
+   * @param {string} text  - full transcript text
    */
-  async saveToCache(title, text) {
-    if (!title || !text) return;
+  async saveToCache(slug, title, text) {
+    if (!slug || !text) return;
     try {
       const res = await fetch(`${this.BACKEND}/api/transcript/save`, {
         method: "POST",
         headers: { ...this.AUTH_HEADERS, "Content-Type": "application/json" },
-        body: JSON.stringify({ title, text }),
+        body: JSON.stringify({ slug, title: title || slug, text }),
       });
       if (res.ok) {
         this.log("✅ Transcript saved to cache for future requests.");
@@ -126,16 +130,17 @@ class AudioTranscriber {
   /**
    * @param {ArrayBuffer} audioBuffer
    * @param {function}    onProgress
-   * @param {string}      [title]     - lecture title used for cache lookup/save
+   * @param {string}      [slug]   - unique slug for cache lookup/save
+   * @param {string}      [title]  - human-readable title stored alongside
    */
-  async transcribe(audioBuffer, onProgress, title) {
+  async transcribe(audioBuffer, onProgress, slug, title) {
     // 1. Generate via Whisper
     const text = await this.transcribeRemote(audioBuffer, onProgress);
 
     // 2. Save to cache in background (non-blocking)
-    if (title && text) {
+    if (slug && text) {
       this.log("💾 Saving transcript to cache...");
-      this.saveToCache(title, text); // intentionally not awaited
+      this.saveToCache(slug, title, text); // intentionally not awaited
     }
 
     return text;

@@ -34,8 +34,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // Open the downloader processing tab!
     const title = request.payload.title || "";
+    const lectureSlug = request.payload.lectureSlug || "";
     const processorUrl = chrome.runtime.getURL(
-      `content/features/videoDownloader/videoProcessor.html?url=${encodeURIComponent(url)}&type=${type}&title=${encodeURIComponent(title)}`,
+      `content/features/videoDownloader/videoProcessor.html?url=${encodeURIComponent(url)}&type=${type}&title=${encodeURIComponent(title)}&lectureSlug=${encodeURIComponent(lectureSlug)}`,
     );
 
     chrome.tabs.create({ url: processorUrl }, (tab) => {

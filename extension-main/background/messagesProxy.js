@@ -69,6 +69,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         email: message.email,
         type: message.downloadType,
         lecture: message.lecture,
+        lectureSlug: message.lectureSlug || "",
       }),
     }).catch(() => {
       /* fail silently */

@@ -24,6 +24,12 @@ const urlParams = new URLSearchParams(window.location.search);
 const m3u8Url = urlParams.get("url");
 const downloadType = urlParams.get("type") || "video";
 const videoTitle = urlParams.get("title") || "";
+const lectureSlug = urlParams.get("lectureSlug") || "";
+
+// The lectureSlug is the unique identifier for cache lookups.
+// It comes from Scaler's classroom meta API (data.attributes.slug)
+// and is unique per lecture even across batches that share the same class title.
+const cacheKey = lectureSlug || videoTitle;
 
 // ── Show video title if available ──
 const titleElem = document.getElementById("video-title");
@@ -56,13 +62,13 @@ function trackCompletedDownload(type) {
   try {
     chrome.storage.sync.get(["scaler_user"], (result) => {
       const email = result?.scaler_user?.email;
-      const lectureTitle = videoTitle || "";
       if (email && chrome.runtime?.id) {
         chrome.runtime.sendMessage({
           action: "trackDownload",
           email,
           downloadType: type,
-          lecture: lectureTitle,
+          lecture: videoTitle || "",
+          lectureSlug: cacheKey,
         });
       }
     });
@@ -383,10 +389,10 @@ startBtn.addEventListener("click", async () => {
       let transcript = null;
 
       // 1. Check Cache FIRST before downloading audio stream
-      if (videoTitle) {
+      if (cacheKey) {
         statusText.innerText = "Phase 1/3: Checking cache...";
-        log(`🔍 Checking transcript cache for: "${videoTitle}"...`);
-        transcript = await transcriber.checkCache(videoTitle);
+        log(`🔍 Checking transcript cache for: "${cacheKey}"...`);
+        transcript = await transcriber.checkCache(cacheKey);
         if (transcript) {
           log(
             "⚡ Cache hit! Returning cached transcript — no downloading needed.",
@@ -430,7 +436,8 @@ startBtn.addEventListener("click", async () => {
             chunksText.innerText = `${current} / ${total} segments`;
             percentText.innerText = `${pct.toFixed(1)}%`;
           },
-          videoTitle || null, // title for cache save
+          cacheKey || null, // unique slug for cache save (batch-safe)
+          videoTitle || null, // human-readable title for display
         );
 
         if (!transcript || transcript.trim().length === 0) {

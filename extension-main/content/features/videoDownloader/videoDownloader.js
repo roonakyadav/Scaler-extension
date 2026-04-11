@@ -6,6 +6,9 @@
 class VideoDownloader {
   constructor() {
     this.enabled = true;
+    this._lectureSlug = null; // unique slug fetched from Scaler's classroom meta API
+    this._lastSlugUrl = null; // tracks which URL the slug was fetched for
+    this._slugPromise = null; // shared promise to avoid duplicate fetches
     this.init();
   }
 
@@ -47,6 +50,83 @@ class VideoDownloader {
     this._startObserver();
   }
 
+  /**
+   * Extract the class ID from the current URL and fetch the unique lecture slug
+   * from Scaler's classroom meta API.
+   *
+   * URL pattern: /academy/mentee-dashboard/class/{classId}/session...
+   * API:         https://www.scaler.com/api/v2/classroom/{classId}/meta
+   * Slug:        response.data.attributes.slug
+   *
+   * Returns the slug string, or null if it couldn't be resolved.
+   * Caches the result per URL so repeated calls are cheap.
+   */
+  async _fetchLectureSlug() {
+    const currentUrl = window.location.pathname;
+
+    // Already fetched for this URL — return cached
+    if (this._lectureSlug && this._lastSlugUrl === currentUrl) {
+      return this._lectureSlug;
+    }
+
+    // If a fetch is already in progress for this URL, wait for it
+    if (this._slugPromise && this._lastSlugUrl === currentUrl) {
+      return this._slugPromise;
+    }
+
+    // Reset for new URL
+    this._lectureSlug = null;
+    this._lastSlugUrl = currentUrl;
+
+    this._slugPromise = (async () => {
+      try {
+        const match = currentUrl.match(/\/class\/(\d+)/);
+        if (!match) {
+          console.warn(
+            "[Scaler++] Could not extract class ID from URL:",
+            currentUrl,
+          );
+          return null;
+        }
+
+        const classId = match[1];
+        console.log(
+          `[Scaler++] Fetching lecture slug for class ID: ${classId}`,
+        );
+
+        const res = await fetch(
+          `https://www.scaler.com/api/v2/classroom/${classId}/meta`,
+        );
+        if (!res.ok) {
+          console.warn(
+            `[Scaler++] Classroom meta API returned HTTP ${res.status}`,
+          );
+          return null;
+        }
+
+        const json = await res.json();
+        const slug = json?.data?.attributes?.slug;
+        if (slug) {
+          this._lectureSlug = slug;
+          console.log(`[Scaler++] Lecture slug resolved: ${slug}`);
+          return slug;
+        } else {
+          console.warn(
+            "[Scaler++] Slug not found in classroom meta response.",
+          );
+          return null;
+        }
+      } catch (e) {
+        console.warn("[Scaler++] Failed to fetch lecture slug:", e.message);
+        return null;
+      } finally {
+        this._slugPromise = null;
+      }
+    })();
+
+    return this._slugPromise;
+  }
+
   _startObserver() {
     // ── Fix #1: debounced MutationObserver, stored for disconnect ──
     if (this._observer) return; // already watching
@@ -80,6 +160,9 @@ class VideoDownloader {
     if (document.getElementById("scaler-video-downloader")) {
       return;
     }
+
+    // Pre-fetch slug when we detect a recording page (best-effort, non-blocking)
+    this._fetchLectureSlug();
 
     this.injectButton(headerActions);
   }
@@ -189,6 +272,17 @@ class VideoDownloader {
     btn.innerHTML =
       '<span style="font-size:12px; font-weight:bold;">...</span>';
 
+    // Ensure the lecture slug is resolved BEFORE proceeding.
+    // This handles SPA navigation where the slug wasn't fetched yet.
+    const slug = await this._fetchLectureSlug();
+    if (slug) {
+      console.log(`[Scaler++] Using lecture slug for download: ${slug}`);
+    } else {
+      console.warn(
+        "[Scaler++] Could not resolve lecture slug — falling back to title.",
+      );
+    }
+
     chrome.runtime.sendMessage({ type: "GET_VIDEO_URL" }, (response) => {
       // Must check lastError first — if the background SW is inactive,
       // Chrome sets this and throws if we don't read it.
@@ -220,6 +314,7 @@ class VideoDownloader {
             url: response.url,
             type: type,
             title: document.title || "",
+            lectureSlug: this._lectureSlug || "",
           },
         },
         () => {
