@@ -9,7 +9,6 @@ const SUBJECT_KEYWORDS = [
   "misc",
   "miscellaneous",
   "revision",
-  "sst",
   "other",
   "others",
   "posh",
