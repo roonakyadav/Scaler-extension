@@ -34,6 +34,28 @@ class AudioTranscriber {
     throw new Error("Backend API is unavailable");
   }
 
+  /**
+   * Check if transcription service is enabled and healthy.
+   * Returns true if healthy, false otherwise.
+   */
+  async checkHealth() {
+    try {
+      const res = await fetch(`${this.BACKEND}/api/transcribe/health`, {
+        method: "GET",
+        headers: this.AUTH_HEADERS,
+      });
+      if (!res.ok) {
+        this.log(`⚠ Transcript health check HTTP ${res.status}.`);
+        return false;
+      }
+      const data = await res.json();
+      return Boolean(data.ok);
+    } catch (e) {
+      this.log(`⚠ Transcript health check failed: ${e.message}`);
+      return false;
+    }
+  }
+
   // ── Cache helpers ──
 
   /**

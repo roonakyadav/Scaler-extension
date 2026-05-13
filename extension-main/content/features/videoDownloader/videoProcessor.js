@@ -403,9 +403,20 @@ startBtn.addEventListener("click", async () => {
         } else {
           log("Cache miss — proceeding to download and transcribe.");
         }
+      } else {
+        log("No cache key provided — skipping cache lookup.");
       }
 
       if (!transcript) {
+        statusText.innerText = "Phase 1/3: Checking transcription health...";
+        const healthy = await transcriber.checkHealth();
+        if (!healthy) {
+          log("❌ Transcript service unavailable — aborting.");
+          statusText.innerText = "Transcript Failed!";
+          progressBar.style.background = "#ef4444";
+          throw new Error("Transcription service unavailable.");
+        }
+
         statusText.innerText = "Phase 1/3: Downloading audio...";
 
         // Download audio into memory
@@ -551,7 +562,12 @@ startBtn.addEventListener("click", async () => {
   } catch (err) {
     log(`❌ Error: ${err.message}`);
     console.error(err);
-    statusText.innerText = "Download Failed!";
+    if (downloadType === "transcript") {
+      statusText.innerText = "Transcript Failed!";
+      progressBar.style.background = "#ef4444";
+    } else {
+      statusText.innerText = "Download Failed!";
+    }
     startBtn.disabled = false;
   }
 });

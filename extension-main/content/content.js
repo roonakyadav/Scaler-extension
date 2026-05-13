@@ -116,6 +116,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!value && typeof closeSpotlight === "function") {
         closeSpotlight();
       }
+    } else if (key === "lecture-info") {
+      if (value) {
+        if (typeof initLectureInfo === "function") initLectureInfo();
+      } else {
+        // teardown lecture-info: disconnect observer and remove injected tags
+        try {
+          if (window._instructorInfoObserver) {
+            window._instructorInfoObserver.disconnect();
+            window._instructorInfoObserver = null;
+          }
+        } catch (e) {
+          console.warn("Error tearing down lecture-info observer", e);
+        }
+
+        document.querySelectorAll('.scaler-lecture-instructor-info, .scaler-lecture-instructor-tag').forEach(el => el.remove());
+        document.querySelectorAll('[data-lecture-instructor-info-id]').forEach(el => el.removeAttribute('data-lecture-instructor-info-id'));
+      }
+    } else if (key === "instructor-info") {
+      if (value) {
+        if (typeof initInstructorInfo === "function") initInstructorInfo();
+      } else {
+        // teardown instructor-info: disconnect tab/session observers and remove UI
+        try {
+          if (window._instructorTabObserver) {
+            window._instructorTabObserver.disconnect();
+            window._instructorTabObserver = null;
+          }
+          if (window._instructorInfoObserver) {
+            window._instructorInfoObserver.disconnect();
+            window._instructorInfoObserver = null;
+          }
+        } catch (e) {
+          console.warn("Error tearing down instructor-info observers", e);
+        }
+
+        document.querySelectorAll('.scaler-instructor-info, .scaler-instructor-tag').forEach(el => el.remove());
+        const tab = document.getElementById('classroom-instructor-info'); if (tab) tab.remove();
+        const panel = document.getElementById('scaler-instructor-panel'); if (panel) panel.remove();
+        document.querySelectorAll('[data-instructor-info-id]').forEach(el => el.removeAttribute('data-instructor-info-id'));
+      }
     } else {
       updateVisibilityForKey(key, value);
     }
@@ -146,6 +186,16 @@ window.addEventListener("load", async () => {
 
   // Initialize Join Session buttons on dashboard
   setTimeout(initJoinSessionButtons, 1500);
+
+  // Initialize Lecture & Instructor info on dashboard/session (respect settings)
+  setTimeout(() => {
+    if (currentSettings && currentSettings["lecture-info"] && typeof initLectureInfo === "function") {
+      initLectureInfo();
+    }
+    if (currentSettings && currentSettings["instructor-info"] && typeof initInstructorInfo === "function") {
+      initInstructorInfo();
+    }
+  }, 1700);
 
   // Initialize Contest Leaderboard on contest pages
   setTimeout(initContestLeaderboard, 2000);
@@ -204,6 +254,16 @@ handleUrlChange = function () {
 
   // Re-inject Join Session buttons on any dashboard navigation
   setTimeout(initJoinSessionButtons, 1500);
+
+  // Re-inject Lecture & Instructor info on any dashboard navigation (respect settings)
+  setTimeout(() => {
+    if (currentSettings && currentSettings["lecture-info"] && typeof initLectureInfo === "function") {
+      initLectureInfo();
+    }
+    if (currentSettings && currentSettings["instructor-info"] && typeof initInstructorInfo === "function") {
+      initInstructorInfo();
+    }
+  }, 1700);
 
   // Re-initialize Subject Sort on curriculum navigation
   if (window.location.href.includes("/core-curriculum")) {

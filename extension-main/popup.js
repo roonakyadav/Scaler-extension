@@ -39,6 +39,8 @@ const DEFAULT_SETTINGS = {
   "live-stream-recorder": true,
   "video-downloader": true,
   "calendar-sync": true,
+  "lecture-info": true,
+  "instructor-info": true,
   "mess-fee-filled-timestamp": null,
 
   // Contest
@@ -72,6 +74,8 @@ const TOGGLE_MAP = {
   "toggle-problem-picker": "problem-picker",
   "toggle-leetcode-link": "leetcode-link",
   "toggle-practice-mode": "practice-mode",
+  "toggle-lecture-info": "lecture-info",
+  "toggle-instructor-info": "instructor-info",
   "toggle-join-session": "join-session",
   "toggle-companion-bypass": "companion-bypass",
   "toggle-companion": "companion",

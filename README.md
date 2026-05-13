@@ -31,7 +31,7 @@ Calendar — no manual entry needed.
 
 Replaces the "View Details" text on live class cards with a direct **"Join Session"** button.
 
-## 📚 Subject Sort
+## � Subject Sort
 
 Automatically organizes your curriculum subjects into **Core** and **Other** categories for a cleaner learning experience.
 
@@ -40,6 +40,14 @@ Automatically organizes your curriculum subjects into **Core** and **Other** cat
 Automatically detects assignment problems and adds a **direct link** to the corresponding LeetCode problem with **intelligent caching** for instant results.
 
 Credits - Siddhanth kapoor
+
+## 📘 Lecture Info
+
+Show session metadata (title, date, instructor/company, rating) directly on class session pages and dashboard cards for quick reference.
+
+## 🧑‍🏫 Instructor Info
+
+Display instructor name, company and role on dashboard class cards and inside a dedicated "Instructor Info" tab on the session page.
 
 ## 🎯 Practice Mode
 
