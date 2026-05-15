@@ -53,6 +53,8 @@ if (!m3u8Url) {
     );
     const infoBox = document.getElementById("info-box");
     if (infoBox) infoBox.style.display = "block";
+    startBtn.disabled = true;
+    startBtn.textContent = "Will be back soon";
   }
 }
 

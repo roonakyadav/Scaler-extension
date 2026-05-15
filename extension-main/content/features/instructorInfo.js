@@ -223,8 +223,9 @@ async function _injectDashboardInstructorInfo() {
 	if (!cards.length) return;
 
 	const today = new Date();
+	const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 7);
 	const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-	const startDate = _formatDate(today);
+	const startDate = _formatDate(start);
 	const endDate = _formatDate(end);
 
 	let lectureMap = null;
