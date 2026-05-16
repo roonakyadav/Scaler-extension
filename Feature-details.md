@@ -5,7 +5,7 @@ This document provides a technical overview of how each major feature is impleme
 ## ⬇️ Lecture Downloader & 📝 AI Transcription
 
 **Description:** Allows downloading recorded lectures as audio, video, or fetching an AI transcript.
-**Implementation:** A DOM observer waits for the `.vp-controls` class indicating a recorded lecture page, then injects a custom dropdown button into the header. When triggered, it communicates with the background service worker to capture the underlying M3U8 streaming link. For transcription requests, it utilizes a direct-to-storage architecture where the client bypasses the core backend and uploads the large audio file directly to Supabase S3 via pre-signed URLs. Once transcribed by the Lemonfox API, the Vercel backend caches the resulting text in a MongoDB database. This reduces bandwidth costs and ensures that subsequent transcript requests for the same lecture are served instantly without reprocessing.
+**Implementation:** A DOM observer waits for the `.vp-controls` class indicating a recorded lecture page, then injects a custom dropdown button into the header. When triggered, it communicates with the background service worker to capture the underlying M3U8 streaming link. For transcription requests, the extension downloads the audio chunks directly to the user's browser memory, and sends them directly to a user-configured third-party Speech-To-Text API provider (e.g., Deepgram, Groq, OpenAI, ElevenLabs) using their personal API key. All transcription processing occurs locally on the client without routing through any centralized extension backend, maximizing privacy and flexibility.
 
 ## 🔴 Live Stream Recorder & ⏪ DVR
 

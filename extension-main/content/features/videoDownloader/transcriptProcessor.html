@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scaler++ Transcription</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        background-color: #0f1117;
+        color: #e4e4e7;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        padding: 24px;
+      }
+      .container {
+        background: linear-gradient(145deg, #1c1d27, #23242f);
+        padding: 40px;
+        border-radius: 16px;
+        box-shadow:
+          0 20px 60px rgba(0, 0, 0, 0.5),
+          0 0 0 1px rgba(255, 255, 255, 0.05);
+        width: 100%;
+        max-width: 520px;
+        text-align: center;
+      }
+      .logo {
+        font-size: 28px;
+        font-weight: 800;
+        margin-bottom: 4px;
+      }
+      .logo span {
+        color: #3484f0;
+      }
+      .subtitle {
+        color: #71717a;
+        font-size: 13px;
+        margin-bottom: 16px;
+      }
+      .video-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #d4d4d8;
+        margin-bottom: 20px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+        display: none;
+      }
+      .mode-badge {
+        display: inline-block;
+        padding: 4px 14px;
+        border-radius: 100px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 24px;
+        background: rgba(16, 185, 129, 0.15);
+        color: #34d399;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+      }
+      .config-section {
+        background: #18181b;
+        border: 1px solid #27272a;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 24px;
+        text-align: left;
+      }
+      .config-section label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        color: #a1a1aa;
+        margin-bottom: 6px;
+      }
+      .config-section input, .config-section select {
+        width: 100%;
+        background: #27272a;
+        border: 1px solid #3f3f46;
+        color: #fff;
+        padding: 10px 12px;
+        border-radius: 6px;
+        margin-bottom: 14px;
+        font-size: 13px;
+        font-family: inherit;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .config-section input:focus, .config-section select:focus {
+        border-color: #3484f0;
+      }
+      .privacy-note {
+        font-size: 11px;
+        color: #10b981;
+        margin-top: 4px;
+        line-height: 1.4;
+      }
+      .service-link {
+        color: #3484f0;
+        text-decoration: none;
+        font-size: 12px;
+        display: inline-block;
+        margin-bottom: 14px;
+      }
+      .service-link:hover {
+        text-decoration: underline;
+      }
+      #status-text {
+        color: #a1a1aa;
+        margin-bottom: 24px;
+        font-size: 14px;
+        min-height: 20px;
+      }
+      .progress-container {
+        width: 100%;
+        background: #27272a;
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 12px;
+        height: 12px;
+      }
+      .progress-bar {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #3484f0, #6366f1);
+        border-radius: 8px;
+        transition: width 0.25s ease;
+      }
+      .stats {
+        font-size: 13px;
+        color: #71717a;
+        margin-bottom: 24px;
+        display: flex;
+        justify-content: space-between;
+      }
+      button {
+        background: linear-gradient(135deg, #3484f0, #6366f1);
+        color: #fff;
+        border: none;
+        padding: 14px 28px;
+        border-radius: 10px;
+        font-size: 15px;
+        cursor: pointer;
+        font-weight: 700;
+        width: 100%;
+        transition: all 0.2s ease;
+        letter-spacing: 0.3px;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px rgba(52, 132, 240, 0.35);
+      }
+      button:active {
+        transform: translateY(0);
+      }
+      button:disabled {
+        background: #27272a;
+        cursor: not-allowed;
+        color: #52525b;
+        box-shadow: none;
+        transform: none;
+      }
+      .logs {
+        margin-top: 24px;
+        background: #18181b;
+        padding: 14px;
+        border-radius: 10px;
+        color: #71717a;
+        font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+        font-size: 11px;
+        height: 140px;
+        overflow-y: auto;
+        text-align: left;
+        border: 1px solid #27272a;
+        line-height: 1.6;
+      }
+      .logs::-webkit-scrollbar {
+        width: 4px;
+      }
+      .logs::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .logs::-webkit-scrollbar-thumb {
+        background: #3f3f46;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="logo">Scaler<span>++</span></div>
+      <div class="subtitle">Secure Transcription</div>
+
+      <div id="video-title" class="video-title"></div>
+
+      <div id="mode-badge" class="mode-badge">TRANSCRIPT</div>
+
+      <div class="config-section">
+        <label for="provider-select">Service Provider (Suggestion):</label>
+        <select id="provider-select">
+          <option value="deepgram" data-url="https://api.deepgram.com/v1/listen" data-link="https://console.deepgram.com/">Deepgram (Recommended)</option>
+          <option value="groq" data-url="https://api.groq.com/openai/v1/audio/transcriptions" data-link="https://console.groq.com/keys">Groq (Ultra fast, generous free tier)</option>
+          <option value="openai" data-url="https://api.openai.com/v1/audio/transcriptions" data-link="https://platform.openai.com/api-keys">OpenAI (Whisper)</option>
+          <option value="elevenlabs" data-url="https://api.elevenlabs.io/v1/speech-to-text" data-link="https://elevenlabs.io/api">ElevenLabs</option>
+          <option value="gladia" data-url="https://api.gladia.io/v2/pre-recorded/" data-link="https://app.gladia.io/auth/login">Gladia</option>
+          <option value="assemblyai" data-url="https://api.assemblyai.com/v2/transcript" data-link="https://www.assemblyai.com/app">AssemblyAI</option>
+          <option value="speechmatics" data-url="https://eu1.asr.api.speechmatics.com/v2/jobs" data-link="https://portal.speechmatics.com/">Speechmatics</option>
+          <option value="soniox" data-url="https://api.soniox.com/v1/transcriptions" data-link="https://soniox.com/">Soniox</option>
+          <option value="revai" data-url="https://api.rev.ai/speechtotext/v1/jobs" data-link="https://www.rev.ai/">Rev AI</option>
+          <option value="witai" data-url="https://api.wit.ai/speech" data-link="https://wit.ai/">Wit.ai</option>
+          <option value="custom" data-url="" data-link="">Custom (OpenAI Compatible API)</option>
+        </select>
+        
+        <a id="get-key-link" class="service-link" href="https://console.deepgram.com/" target="_blank">Get API Key for Deepgram</a>
+
+        <label for="base-url">Base URL:</label>
+        <input type="text" id="base-url" placeholder="https://api.deepgram.com/v1/listen" value="https://api.deepgram.com/v1/listen" />
+
+        <label for="api-key">API Key:</label>
+        <input type="password" id="api-key" placeholder="Enter your API Key" />
+        
+        <p class="privacy-note">🔒 Your data remains on your browser and is never sent to any third-party servers by this extension.</p>
+      </div>
+
+      <p id="status-text">Ready to transcribe.</p>
+
+      <div class="progress-container">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+
+      <div class="stats">
+        <span id="progress-chunks">0 / 0 chunks</span>
+        <span id="progress-percent">0%</span>
+      </div>
+
+      <button id="start-btn">Start Transcription</button>
+
+      <div class="logs" id="logs">[System] Waiting for user to configure and start...</div>
+    </div>
+
+    <script src="tsAudioExtractor.js"></script>
+    <script src="customAudioTranscriber.js"></script>
+    <script src="transcriptProcessor.js"></script>
+  </body>
+</html>

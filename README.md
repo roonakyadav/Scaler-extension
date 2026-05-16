@@ -16,7 +16,7 @@ Credits - [PHATWalrus](https://github.com/PHATWalrus)
 
 ## ⬇️ Lecture Downloader & 📝 AI Transcription
 
-Download recorded lectures directly from the Scaler recordings page as **audio**, **video**, or **transcript**
+Download recorded lectures directly from the Scaler recordings page as **audio**, **video**, or **transcript** (using your own custom API key for providers like Deepgram, Groq, OpenAI, or ElevenLabs).
 
 ## 🔴 Live Stream Recorder & ⏪ DVR
 
@@ -87,7 +87,7 @@ Press **`Alt + /`** (Option + / on Mac) or click the **Search** button in the Sc
 
 - ✅ **Instant Apply** - Settings take effect immediately without a page reload.
 - ✅ **Smart Bypass** - Companion mode bypassed on-demand with zero permanent overhead.
-- ✅ **Lecture Downloads** - Download 2-hour recordings as lightweight audio, full video, or AI transcript.
+- ✅ **Lecture Downloads** - Download 2-hour recordings as lightweight audio, full video, or fully local AI transcripts.
 - ✅ **Smart Caching** - LeetCode links load instantly on revisits (20-50× faster).
 - ✅ **Lightweight & Fast** - Native performance with no external dependencies.
 - ✅ **Privacy Centric** - No data collection; works entirely via local storage.
@@ -122,10 +122,12 @@ extension-main/
     ├── features/
     │   ├── videoDownloader/  ← Lecture download & transcript module
     │   │   ├── videoDownloader.js    ← Button injection & recording detection
-    │   │   ├── videoProcessor.html   ← Download/transcript progress UI
+    │   │   ├── videoProcessor.html   ← Download progress UI
     │   │   ├── videoProcessor.js     ← Concurrent HLS downloader engine
-    │   │   ├── audioTranscriber.js   ← Lemonfox API transcription engine
-    │   │   └── modeBadge.js          ← Audio/Video/Transcript mode badge
+    │   │   ├── transcriptProcessor.html ← Dedicated transcription UI
+    │   │   ├── transcriptProcessor.js   ← Client-side transcript orchestrator
+    │   │   ├── customAudioTranscriber.js ← Custom STT API adapters (Deepgram, Groq, etc)
+    │   │   └── modeBadge.js          ← Audio/Video mode badge
     │   ├── liveStreamRecorder/ ← Live recording & DVR module
     │   │   ├── liveStreamRecorder.js ← Main logic & UI injection
     │   │   ├── recorderBridge.js     ← Page context Agora handler
