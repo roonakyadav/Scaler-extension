@@ -1,38 +1,48 @@
-// Tracker to capture .m3u8 network requests for downloading
+// ── Stream URL store ────────────────────────────────────────────────────────
+// Keyed by tabId → the best .m3u8 URL seen for that tab.
+//
+// HOW IT WORKS (no broad host_permissions needed):
+//   The content script (runs only on scaler.com per manifest "matches") uses
+//   PerformanceObserver to watch every resource request the page makes.
+//   When it sees a .m3u8 URL — from ANY CDN (CloudFront, media.scaler.com,
+//   or any future provider) — it forwards it here via chrome.runtime.sendMessage.
+//   Because the sender is always a scaler.com content script, no extra
+//   host_permissions are required. Scoping is free.
+// ────────────────────────────────────────────────────────────────────────────
 const tabVideoStreams = {};
 
-chrome.webRequest.onCompleted.addListener(
-  (details) => {
-    // Only capture master m3u8 playlists if possible, or specifically from Scaler's media servers
-    if (details.url.includes(".m3u8")) {
-      const tabId = details.tabId;
-      if (tabId === -1) return;
+function isMasterPlaylist(url) {
+  return url.includes("master") || url.includes("index");
+}
 
-      // If we already have a URL for this tab, we might only overwrite if it looks like a master playlist
-      if (!tabVideoStreams[tabId]) {
-        tabVideoStreams[tabId] = details.url;
-      } else if (
-        details.url.includes("master") ||
-        details.url.includes("index")
-      ) {
-        tabVideoStreams[tabId] = details.url;
-      }
-    }
-  },
-  // Scoped to scaler.com only — was "*://*/*" which captured ALL network
-  // requests across every tab the user had open.
-  { urls: ["*://*.scaler.com/*"] },
-);
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+
+  // ── Stream URL captured by PerformanceObserver in the content script ──────
+  // The content script runs only on scaler.com (manifest matches), so
+  // sender.tab is always a Scaler tab — no extra host_permissions needed.
+  if (request.type === "M3U8_CAPTURED") {
+    const tabId = sender.tab?.id;
+    if (!tabId || tabId === -1) return;
+    const url = request.url;
+    if (!url || !url.includes(".m3u8")) return;
+
+    const existing = tabVideoStreams[tabId];
+    if (!existing) {
+      tabVideoStreams[tabId] = url;
+      console.log(`[Scaler++] Stream captured via PerformanceObserver (${new URL(url).hostname}): ${url.substring(0, 80)}...`);
+    } else if (isMasterPlaylist(url) && !isMasterPlaylist(existing)) {
+      tabVideoStreams[tabId] = url;
+      console.log("[Scaler++] Stream upgraded to master playlist.");
+    }
+    return; // fire-and-forget, no response needed
+  }
+
   if (request.type === "GET_VIDEO_URL") {
     sendResponse({ url: tabVideoStreams[sender.tab?.id] || null });
   } else if (request.type === "INITIATE_DOWNLOAD") {
-    // Initiate actual download of the stream
     const url = request.payload.url;
     const type = request.payload.type;
-
-    // Open the downloader processing tab!
     const title = request.payload.title || "";
     const lectureSlug = request.payload.lectureSlug || "";
     const htmlPage = type === "transcript" ? "transcriptProcessor.html" : "videoProcessor.html";
@@ -44,7 +54,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log(`[Scaler++] Opened ${htmlPage} tab ID: ${tab.id}`);
     });
 
-    // We send a tiny response back
     sendResponse({ status: "started" });
   }
 });

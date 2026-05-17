@@ -9,6 +9,7 @@ class VideoDownloader {
     this._lectureSlug = null; // unique slug fetched from Scaler's classroom meta API
     this._lastSlugUrl = null; // tracks which URL the slug was fetched for
     this._slugPromise = null; // shared promise to avoid duplicate fetches
+    this._networkObserver = null; // watches for .m3u8 requests
     this.init();
   }
 
@@ -36,6 +37,8 @@ class VideoDownloader {
           // ── Fix #1: disconnect observer when feature is disabled ──
           this._observer?.disconnect();
           this._observer = null;
+          this._networkObserver?.disconnect();
+          this._networkObserver = null;
         } else if (msg.value) {
           this.checkAndInject();
           this._startObserver();
@@ -48,6 +51,36 @@ class VideoDownloader {
     }
 
     this._startObserver();
+    this._startNetworkObserver();
+  }
+
+  /**
+   * Starts a PerformanceObserver to watch for .m3u8 network requests made by the page.
+   * This replaces the need for background webRequest listeners with broad host permissions.
+   */
+  _startNetworkObserver() {
+    if (this._networkObserver) return;
+
+    try {
+      this._networkObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (entry.initiatorType !== 'xmlhttprequest' && entry.initiatorType !== 'fetch' && entry.initiatorType !== 'other') {
+             continue;
+          }
+          const url = entry.name;
+          if (url && url.includes(".m3u8")) {
+            chrome.runtime.sendMessage({
+              type: "M3U8_CAPTURED",
+              url: url
+            }).catch(() => { /* fail silently if background is inactive */ });
+          }
+        }
+      });
+      
+      this._networkObserver.observe({ type: "resource", buffered: true });
+    } catch (e) {
+      console.warn("[Scaler++] Failed to start PerformanceObserver:", e);
+    }
   }
 
   /**

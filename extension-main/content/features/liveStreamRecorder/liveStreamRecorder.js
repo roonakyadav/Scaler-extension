@@ -29,6 +29,7 @@ class LiveStreamRecorder {
     // DVR state
     this.isDVRLoading = false; // Prevents race conditions during DVR transitions
     this.pendingSeekTime = null; // Store seek time while DVR is loading
+    this._observer = null; // Tracks DOM mutations for SPA navigation
 
     this.init();
   }
@@ -54,10 +55,19 @@ class LiveStreamRecorder {
         msg.key === "live-stream-recorder"
       ) {
         this.enabled = msg.value;
-        if (!msg.value && this.isActive) {
-          this.deactivate();
+        if (!msg.value) {
+          if (this.isActive) {
+            this.deactivate();
+          }
+          const btn = document.getElementById("scaler-live-recorder-btn-container");
+          if (btn) btn.remove();
+          if (this._observer) {
+            this._observer.disconnect();
+            this._observer = null;
+          }
         } else if (msg.value) {
           this.checkAndInject();
+          this._startObserver();
         }
       }
     });
@@ -66,9 +76,15 @@ class LiveStreamRecorder {
       this.checkAndInject();
     }
 
+    this._startObserver();
+  }
+
+  _startObserver() {
+    if (this._observer) return;
+
     // Observe DOM mutations for SPA navigation, debounced to prevent memory/CPU spikes
     let _injectDebounceTimer = null;
-    const observer = new MutationObserver(() => {
+    this._observer = new MutationObserver(() => {
       clearTimeout(_injectDebounceTimer);
       _injectDebounceTimer = setTimeout(() => {
         if (this.enabled && !this.isActive) this.checkAndInject();
@@ -80,7 +96,7 @@ class LiveStreamRecorder {
       document.getElementById("root") ||
       document.querySelector(".application-layout") ||
       document.body;
-    observer.observe(appRoot, { childList: true, subtree: true });
+    this._observer.observe(appRoot, { childList: true, subtree: true });
   }
 
   checkAndInject() {
