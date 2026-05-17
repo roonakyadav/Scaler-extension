@@ -9,6 +9,8 @@ const progressBar = document.getElementById("progress-bar");
 const chunksText = document.getElementById("progress-chunks");
 const percentText = document.getElementById("progress-percent");
 const startBtn = document.getElementById("start-btn");
+const cacheBtn = document.getElementById("cache-btn");
+const btnDivider = document.getElementById("btn-divider");
 
 const providerSelect = document.getElementById("provider-select");
 const baseUrlInput = document.getElementById("base-url");
@@ -16,6 +18,165 @@ const apiKeyInput = document.getElementById("api-key");
 const getKeyLink = document.getElementById("get-key-link");
 
 const CONCURRENCY = 6;
+
+// ── Backend Cache Config ──
+const BACKEND_BASE_URL = "https://scalerbackend.vercel.app";
+const EXTENSION_TOKEN = "Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345";
+
+/**
+ * Check the backend transcript cache for cacheKey.
+ * Returns { cached: true, text } if found, or { cached: false } if not.
+ */
+async function checkTranscriptCache(key) {
+  if (!key || !key.trim()) return { cached: false };
+  try {
+    const res = await fetch(
+      `${BACKEND_BASE_URL}/api/transcript?slug=${encodeURIComponent(key.trim())}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${EXTENSION_TOKEN}` },
+      }
+    );
+    if (!res.ok) return { cached: false };
+    const data = await res.json();
+    return data.cached ? { cached: true, text: data.text } : { cached: false };
+  } catch (e) {
+    console.warn("[Scaler++] Cache lookup failed:", e.message);
+    return { cached: false };
+  }
+}
+
+/**
+ * Save a generated transcript to the backend cache.
+ * Fire-and-forget — never throws.
+ */
+async function saveTranscriptToCache(key, title, text) {
+  if (!key || !text) return;
+  try {
+    await fetch(`${BACKEND_BASE_URL}/api/transcript/save`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${EXTENSION_TOKEN}`,
+      },
+      body: JSON.stringify({
+        slug: key.trim(),
+        title: (title || key).trim(),
+        text: text.trim(),
+      }),
+    });
+    console.log("[Scaler++] Transcript saved to cache for key:", key);
+  } catch (e) {
+    console.warn("[Scaler++] Failed to save transcript to cache:", e.message);
+  }
+}
+
+/**
+ * Validate that the given API key is accepted by the provider.
+ *
+ * Strategy: each provider exposes a lightweight, read-only endpoint
+ * (models list, account info, etc.) that returns 401/403 on a bad key
+ * and 200 on a good one — zero transcription credits consumed.
+ *
+ * Falls back to sending a ~1 KB silent WAV blob for truly custom/unknown URLs
+ * to distinguish network errors from auth errors.
+ *
+ * Returns { ok: true } or { ok: false, reason: string }.
+ */
+async function validateApiKey(baseUrl, apiKey) {
+  const u = baseUrl.toLowerCase();
+
+  try {
+    let res;
+
+    if (u.includes("deepgram.com")) {
+      // Deepgram: GET /v1/projects — free account info endpoint
+      res = await fetch("https://api.deepgram.com/v1/projects", {
+        headers: { Authorization: `Token ${apiKey}` },
+      });
+
+    } else if (u.includes("groq.com")) {
+      // Groq: GET /openai/v1/models
+      res = await fetch("https://api.groq.com/openai/v1/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+
+    } else if (u.includes("openai.com")) {
+      // OpenAI: GET /v1/models
+      res = await fetch("https://api.openai.com/v1/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+
+    } else if (u.includes("elevenlabs.io")) {
+      // ElevenLabs: GET /v1/user
+      res = await fetch("https://api.elevenlabs.io/v1/user", {
+        headers: { "xi-api-key": apiKey },
+      });
+
+    } else if (u.includes("assemblyai.com")) {
+      // AssemblyAI: GET /v2/account
+      res = await fetch("https://api.assemblyai.com/v2/account", {
+        headers: { authorization: apiKey },
+      });
+
+    } else if (u.includes("gladia.io")) {
+      // Gladia: GET /v2/ listing endpoint
+      res = await fetch("https://api.gladia.io/v2/", {
+        headers: { "x-gladia-key": apiKey },
+      });
+
+    } else if (u.includes("wit.ai")) {
+      // Wit.ai: GET /apps — bearer token is the key itself
+      res = await fetch("https://api.wit.ai/apps?limit=1", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+
+    } else {
+      // Custom / unknown provider: send a tiny silent WAV (44-byte minimal
+      // header + silence) and look only for 401/403 to detect bad keys.
+      // Any other status (400 format error, 413 size, etc.) means the key
+      // itself is likely fine — we let the real transcription attempt proceed.
+      const silentWav = new Uint8Array([
+        0x52,0x49,0x46,0x46, 0x24,0x00,0x00,0x00, // RIFF....$..
+        0x57,0x41,0x56,0x45, 0x66,0x6d,0x74,0x20, // WAVEfmt 
+        0x10,0x00,0x00,0x00, 0x01,0x00, 0x01,0x00, // PCM, 1ch
+        0x44,0xac,0x00,0x00, 0x88,0x58,0x01,0x00, // 44100 Hz
+        0x02,0x00, 0x10,0x00,                      // blockAlign, bitsPerSample
+        0x64,0x61,0x74,0x61, 0x00,0x00,0x00,0x00, // data chunk (0 bytes)
+      ]);
+      const formData = new FormData();
+      formData.append("file", new Blob([silentWav], { type: "audio/wav" }), "health.wav");
+      formData.append("model", "whisper-1");
+
+      res = await fetch(baseUrl, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: formData,
+      });
+
+      // Only a 401/403 conclusively means a bad key
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, reason: `API key rejected (HTTP ${res.status})` };
+      }
+      return { ok: true }; // any other status — key is accepted
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, reason: `API key rejected (HTTP ${res.status})` };
+    }
+    if (!res.ok) {
+      // Unexpected server error — treat as "key probably fine, let transcription try"
+      console.warn(`[Scaler++] Health check returned HTTP ${res.status} — proceeding anyway.`);
+    }
+    return { ok: true };
+
+  } catch (e) {
+    // Network error (CORS on health endpoint, offline, etc.) —
+    // don't block the user; let the actual transcription surface the real error.
+    console.warn("[Scaler++] API key health check network error:", e.message);
+    return { ok: true };
+  }
+}
 
 function log(msg) {
   const p = document.createElement("div");
@@ -37,6 +198,12 @@ if (titleElem && videoTitle) {
   titleElem.style.display = "block";
 }
 
+// ── Show the cache button whenever we have a lookup key ──
+if (cacheKey) {
+  cacheBtn.style.display = "block";
+  btnDivider.style.display = "flex";
+}
+
 if (!m3u8Url) {
   log("Error: No M3U8 URL provided.");
   statusText.innerText = "Error: Invalid Stream Data";
@@ -45,6 +212,53 @@ if (!m3u8Url) {
   log("Mode: TRANSCRIPT");
   log(`Stream: ${m3u8Url.substring(0, 60)}...`);
 }
+
+// ── Cache Button: check cache and download instantly (no API key needed) ──
+cacheBtn.addEventListener("click", async () => {
+  if (!cacheKey) return;
+
+  cacheBtn.disabled = true;
+  startBtn.disabled = true;
+  cacheBtn.textContent = "Checking cache...";
+  statusText.innerText = "Looking up cached transcript...";
+  log("Checking transcript cache...");
+
+  try {
+    const cached = await checkTranscriptCache(cacheKey);
+    if (cached.cached && cached.text) {
+      log("✅ Cache HIT — serving cached transcript.");
+      statusText.innerText = "🎉 Loaded from Cache!";
+      progressBar.style.width = "100%";
+      progressBar.style.background = "#10b981";
+
+      const blob = new Blob([cached.text], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = getSuggestedName("txt");
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      const wordCount = cached.text.split(/\s+/).length;
+      log(`📦 ${wordCount} words downloaded from cache.`);
+      cacheBtn.textContent = "✅ Downloaded from Cache";
+    } else {
+      log("Cache MISS — no cached transcript found for this lecture.");
+      statusText.innerText = "Not in cache. Use your API key to transcribe.";
+      cacheBtn.textContent = "⚡ Load from Cache";
+      cacheBtn.disabled = false;
+      startBtn.disabled = false;
+    }
+  } catch (err) {
+    log(`❌ Cache check error: ${err.message}`);
+    statusText.innerText = "Cache check failed.";
+    cacheBtn.textContent = "⚡ Load from Cache";
+    cacheBtn.disabled = false;
+    startBtn.disabled = false;
+  }
+});
 
 // ── Configuration Management ──
 
@@ -258,13 +472,62 @@ startBtn.addEventListener("click", async () => {
 
   try {
     startBtn.disabled = true;
-    
+    cacheBtn.disabled = true;
+
     // Disable inputs during processing
     providerSelect.disabled = true;
     baseUrlInput.disabled = true;
     apiKeyInput.disabled = true;
 
-    statusText.innerText = "Phase 1/2: Downloading audio...";
+    // ── STEP 0: Cache Check ──────────────────────────────────────
+    if (cacheKey) {
+      log("Step 0/3: Checking transcript cache...");
+      statusText.innerText = "Step 0/3: Checking cache...";
+      const cached = await checkTranscriptCache(cacheKey);
+      if (cached.cached && cached.text) {
+        log("✅ Cache HIT — serving cached transcript instantly.");
+        statusText.innerText = "🎉 Loaded from Cache!";
+        progressBar.style.width = "100%";
+        progressBar.style.background = "#10b981";
+
+        const blob = new Blob([cached.text], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = getSuggestedName("txt");
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        const wordCount = cached.text.split(/\s+/).length;
+        log(`📦 ${wordCount} words served from cache.`);
+        return; // skip all further steps
+      }
+      log("Cache MISS — no cached transcript found.");
+    }
+    // ───────────────────────────────────────────────────────────
+
+    // ── STEP 1: API Key Health Check ────────────────────────────
+    log("Step 1/3: Validating API key...");
+    statusText.innerText = "Step 1/3: Validating API key...";
+    const health = await validateApiKey(baseUrl, apiKey);
+    if (!health.ok) {
+      log(`❌ API key invalid: ${health.reason}`);
+      statusText.innerText = `❌ API Key Error: ${health.reason}`;
+      // Re-enable inputs so user can fix the key
+      providerSelect.disabled = false;
+      baseUrlInput.disabled = false;
+      apiKeyInput.disabled = false;
+      startBtn.disabled = false;
+      cacheBtn.disabled = false;
+      return;
+    }
+    log("✅ API key validated successfully.");
+    // ───────────────────────────────────────────────────────────
+
+    // ── STEP 2: Download audio ──────────────────────────────────
+    statusText.innerText = "Step 2/3: Downloading audio...";
     const masterText = await fetchText(m3u8Url);
     const mediaPlaylistUrl = getMediaPlaylistUrl(masterText, m3u8Url);
     const mediaText = await fetchText(mediaPlaylistUrl);
@@ -279,7 +542,7 @@ startBtn.addEventListener("click", async () => {
     chunksText.innerText = "—";
     percentText.innerText = "0%";
     
-    statusText.innerText = "Phase 2/2: Transcribing via your API...";
+    statusText.innerText = "Step 3/3: Transcribing via your API...";
     
     const transcriber = new CustomAudioTranscriber(baseUrl, apiKey, log);
     
@@ -294,7 +557,7 @@ startBtn.addEventListener("click", async () => {
       throw new Error("Transcription produced no text. Audio may be silent or unsupported.");
     }
 
-    // Save
+    // Save locally
     const blob = new Blob([transcript], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -311,6 +574,13 @@ startBtn.addEventListener("click", async () => {
     statusText.innerText = `🎉 Transcript Complete! (${wordCount} words, ${elapsed} min)`;
     progressBar.style.width = "100%";
     progressBar.style.background = "#10b981";
+
+    // ── Save to backend cache (fire-and-forget) ───────────────
+    if (cacheKey) {
+      log("Saving transcript to cache for future use...");
+      saveTranscriptToCache(cacheKey, videoTitle, transcript);
+    }
+    // ─────────────────────────────────────────────────────────
 
     // Track
     chrome.storage.sync.get(["scaler_user"], (result) => {
@@ -333,6 +603,7 @@ startBtn.addEventListener("click", async () => {
     progressBar.style.background = "#ef4444";
   } finally {
     startBtn.disabled = false;
+    cacheBtn.disabled = false;
     providerSelect.disabled = false;
     baseUrlInput.disabled = false;
     apiKeyInput.disabled = false;

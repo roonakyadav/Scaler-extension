@@ -170,6 +170,39 @@
         box-shadow: none;
         transform: none;
       }
+      /* Cache button — secondary green style */
+      #cache-btn {
+        background: linear-gradient(135deg, #059669, #10b981);
+        margin-bottom: 10px;
+      }
+      #cache-btn:hover {
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+      }
+      #cache-btn:disabled {
+        background: #27272a;
+        cursor: not-allowed;
+        color: #52525b;
+        box-shadow: none;
+        transform: none;
+      }
+      .btn-divider {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        color: #3f3f46;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .btn-divider::before,
+      .btn-divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: #27272a;
+      }
       .logs {
         margin-top: 24px;
         background: #18181b;
@@ -242,6 +275,11 @@
         <span id="progress-chunks">0 / 0 chunks</span>
         <span id="progress-percent">0%</span>
       </div>
+
+      <!-- Cache button: visible only when a cacheKey is present (set by JS) -->
+      <button id="cache-btn" style="display:none">⚡ Load from Cache</button>
+
+      <div class="btn-divider" id="btn-divider" style="display:none">or transcribe with your API key</div>
 
       <button id="start-btn">Start Transcription</button>
 
