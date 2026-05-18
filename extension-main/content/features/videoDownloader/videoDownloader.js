@@ -27,8 +27,8 @@ class VideoDownloader {
       // Default to enabled
     }
 
-    // Listen for live toggle changes from the popup
-    chrome.runtime.onMessage.addListener((msg) => {
+    // Listen for live toggle changes from the popup and proxy requests
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.action === "toggleSetting" && msg.key === "video-downloader") {
         this.enabled = msg.value;
         const existing = document.getElementById("scaler-video-downloader");
@@ -43,6 +43,22 @@ class VideoDownloader {
           this.checkAndInject();
           this._startObserver();
         }
+      } else if (msg.action === "FETCH_PROXY") {
+        // Proxy fetch request to bypass CORS for CloudFront chunks
+        fetch(msg.url)
+          .then(async res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (msg.type === "text") {
+              return { data: await res.text() };
+            } else {
+              // Convert ArrayBuffer to Array for safe message passing
+              const buffer = await res.arrayBuffer();
+              return { data: Array.from(new Uint8Array(buffer)) };
+            }
+          })
+          .then(result => sendResponse({ success: true, data: result.data }))
+          .catch(err => sendResponse({ success: false, error: err.message }));
+        return true; // Keep message channel open for async response
       }
     });
 

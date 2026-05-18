@@ -190,6 +190,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const m3u8Url = urlParams.get("url");
 const videoTitle = urlParams.get("title") || "";
 const lectureSlug = urlParams.get("lectureSlug") || "";
+const sourceTabId = parseInt(urlParams.get("sourceTabId"), 10);
 const cacheKey = lectureSlug || videoTitle;
 
 const titleElem = document.getElementById("video-title");
@@ -316,6 +317,25 @@ loadConfig();
 // ── M3U8 Download Helpers ──
 
 async function fetchText(url) {
+  if (sourceTabId && !isNaN(sourceTabId)) {
+    return new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(
+        sourceTabId,
+        { action: "FETCH_PROXY", url, type: "text" },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.error("Proxy error:", chrome.runtime.lastError);
+            fetch(url).then(res => res.text()).then(resolve).catch(reject);
+          } else if (response && response.success) {
+            resolve(response.data);
+          } else {
+            reject(new Error(response?.error || "Proxy fetch failed"));
+          }
+        }
+      );
+    });
+  }
+
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
   return await res.text();
@@ -388,9 +408,30 @@ function extractSegments(mediaText, baseUrl) {
 async function fetchChunk(url, index) {
   for (let retry = 0; retry < 3; retry++) {
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.arrayBuffer();
+      if (sourceTabId && !isNaN(sourceTabId)) {
+        const response = await new Promise((resolve, reject) => {
+          chrome.tabs.sendMessage(
+            sourceTabId,
+            { action: "FETCH_PROXY", url, type: "binary" },
+            (resp) => {
+              if (chrome.runtime.lastError) {
+                reject(chrome.runtime.lastError);
+              } else if (resp && resp.success) {
+                resolve(resp.data);
+              } else {
+                reject(new Error(resp?.error || "Proxy fetch failed"));
+              }
+            }
+          );
+        });
+        
+        const uint8 = new Uint8Array(response);
+        return uint8.buffer;
+      } else {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.arrayBuffer();
+      }
     } catch (e) {
       if (retry < 2) await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
     }
