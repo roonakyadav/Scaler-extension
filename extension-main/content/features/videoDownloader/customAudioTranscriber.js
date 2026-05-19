@@ -5,9 +5,10 @@
 // ============================================================
 
 class CustomAudioTranscriber {
-  constructor(baseUrl, apiKey, logFn) {
+  constructor(baseUrl, apiKey, modelName, logFn) {
     this.baseUrl = baseUrl.trim();
     this.apiKey = apiKey.trim();
+    this.modelName = modelName ? modelName.trim() : "";
     this.log = logFn || (() => {});
   }
 
@@ -45,17 +46,8 @@ class CustomAudioTranscriber {
     if (!this.baseUrl) throw new Error("Base URL is required.");
     if (!this.apiKey) throw new Error("API Key is required.");
 
-    this.log("Starting local transcription process...");
+    this.log("Starting parallel transcription process...");
     
-    // Most APIs (like OpenAI/Groq) have a 25MB limit. We use 20MB chunks to be safe.
-    const CHUNK_SIZE = 20 * 1024 * 1024;
-    const totalChunks = Math.ceil(audioBuffer.byteLength / CHUNK_SIZE);
-    const transcriptParts = [];
-
-    this.log(
-      `Audio size: ${(audioBuffer.byteLength / 1024 / 1024).toFixed(1)} MB → ${totalChunks} chunk(s)`
-    );
-
     // Determine the provider based on URL
     const isOpenAI = this.baseUrl.includes("openai.com");
     const isGroq = this.baseUrl.includes("groq.com");
@@ -64,51 +56,200 @@ class CustomAudioTranscriber {
     const isGladia = this.baseUrl.includes("gladia.io");
     const isElevenLabs = this.baseUrl.includes("elevenlabs.io");
 
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_SIZE;
-      const end = Math.min(start + CHUNK_SIZE, audioBuffer.byteLength);
-      const chunk = audioBuffer.slice(start, end);
+    // Pre-process raw AAC/TS data: Decode entire stream, resample to 16kHz Mono, and split into safe 10-minute WAV chunks
+    const wavBlobs = await this._prepareWavBlobs(audioBuffer);
+    const totalChunks = wavBlobs.length;
+    const transcriptParts = new Array(totalChunks);
 
-      const blob = new Blob([chunk], { type: "audio/mpeg" });
-      let text = "";
+    let nextChunkIndex = 0;
+    let completedCount = 0;
 
-      try {
-        if (isDeepgram) {
-          text = await this._transcribeDeepgram(blob);
-        } else if (isAssembly) {
-          text = await this._transcribeAssemblyAI(blob);
-        } else if (isGladia) {
-          text = await this._transcribeGladia(blob);
-        } else if (isElevenLabs) {
-          text = await this._transcribeElevenLabs(blob);
-        } else {
-          // Default to OpenAI compatible (Groq, OpenAI, Custom)
-          const model = isGroq ? "whisper-large-v3" : "whisper-1";
-          text = await this._transcribeOpenAICompatible(blob, model);
+    const worker = async () => {
+      while (nextChunkIndex < totalChunks) {
+        const i = nextChunkIndex++;
+        const blob = wavBlobs[i];
+
+        let text = "";
+        const MAX_RETRIES = 3;
+
+        for (let retry = 0; retry < MAX_RETRIES; retry++) {
+          try {
+            if (isDeepgram) {
+              text = await this._transcribeDeepgram(blob);
+            } else if (isAssembly) {
+              text = await this._transcribeAssemblyAI(blob);
+            } else if (isGladia) {
+              text = await this._transcribeGladia(blob);
+            } else if (isElevenLabs) {
+              text = await this._transcribeElevenLabs(blob);
+            } else {
+              // Default to OpenAI compatible (Groq, OpenAI, Custom)
+              const model = this.modelName || (isGroq ? "whisper-large-v3" : "whisper-1");
+              text = await this._transcribeOpenAICompatible(blob, model);
+            }
+            break; // Success! Break retry loop.
+          } catch (err) {
+            this.log(`❌ Chunk ${i + 1} attempt ${retry + 1} failed: ${err.message}`);
+            if (retry < MAX_RETRIES - 1) {
+              const backoffTime = 2000 * (retry + 1);
+              this.log(`Waiting ${backoffTime / 1000}s before retry...`);
+              await new Promise((resolve) => setTimeout(resolve, backoffTime));
+            }
+          }
         }
 
-        if (text) transcriptParts.push(text.trim());
-      } catch (err) {
-        this.log(`❌ Chunk ${i + 1} failed: ${err.message}`);
-      }
+        if (text) {
+          transcriptParts[i] = text.trim();
+        } else {
+          transcriptParts[i] = ""; // Keep place in array even if chunk completely failed
+        }
 
-      const pct = (((i + 1) / totalChunks) * 100).toFixed(1);
-      if (onProgress) onProgress(parseFloat(pct), i + 1, totalChunks);
-      this.log(`Transcribed Chunk: ${i + 1}/${totalChunks} (${pct}%)`);
-
-      if (i < totalChunks - 1) {
-        await new Promise((r) => setTimeout(r, 1000)); // Delay between chunks
+        completedCount++;
+        const pct = ((completedCount / totalChunks) * 100).toFixed(1);
+        if (onProgress) onProgress(parseFloat(pct), completedCount, totalChunks);
+        this.log(`Chunk ${i + 1} transcribed. Progress: ${completedCount}/${totalChunks} completed (${pct}%)`);
       }
+    };
+
+    // Spawn up to 5 concurrent workers
+    const concurrency = Math.min(5, totalChunks);
+    this.log(`Spawning ${concurrency} parallel worker(s) for transcription...`);
+    const workers = [];
+    for (let w = 0; w < concurrency; w++) {
+      workers.push(worker());
     }
 
-    let fullText = transcriptParts.join(" ");
+    await Promise.all(workers);
+
+    // Join all non-empty results maintaining index-based chronological order
+    let fullText = transcriptParts.filter((p) => p && p.length > 0).join(" ");
     return this._removeRepetitions(fullText);
   }
 
+  /**
+   * Decodes the ENTIRE raw AAC/TS audio buffer at once.
+   * Resamples it to 16kHz Mono (highly compatible, small footprint).
+   * Splits the uncompressed PCM data into 10-minute chunks.
+   * Converts each chunk to a pristine WAV Blob (guaranteed <25MB).
+   */
+  async _prepareWavBlobs(rawAudioBuffer) {
+    this.log("Decoding complete raw audio stream...");
+    
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let decodedBuffer;
+    try {
+      // Decode the massive raw AAC/ADTS audio bytes at once
+      decodedBuffer = await audioCtx.decodeAudioData(rawAudioBuffer.slice(0));
+    } catch (e) {
+      this.log(`⚠ Web Audio decode failed: ${e.message}`);
+      if (audioCtx.close) await audioCtx.close();
+      
+      this.log("Fallback: Splitting raw audio into 20MB chunks without WAV conversion.");
+      // Fallback: chunk the raw audio buffer into 20MB chunks and return raw Blobs.
+      // We will pretend they are "audio.m4a" to bypass the API's strict file-type check.
+      const CHUNK_SIZE = 20 * 1024 * 1024;
+      const totalFallbackChunks = Math.ceil(rawAudioBuffer.byteLength / CHUNK_SIZE);
+      const rawBlobs = [];
+      for (let i = 0; i < totalFallbackChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, rawAudioBuffer.byteLength);
+        const chunk = rawAudioBuffer.slice(start, end);
+        rawBlobs.push(new Blob([chunk], { type: "audio/mpeg" }));
+      }
+      return rawBlobs;
+    }
+
+    this.log(`Decoded duration: ${Math.round(decodedBuffer.duration)} seconds. Resampling to 16kHz Mono...`);
+    
+    const TARGET_SAMPLE_RATE = 16000;
+    const totalSamples = Math.ceil(decodedBuffer.duration * TARGET_SAMPLE_RATE);
+    
+    const offlineCtx = new OfflineAudioContext(1, totalSamples, TARGET_SAMPLE_RATE);
+    const bufferSource = offlineCtx.createBufferSource();
+    bufferSource.buffer = decodedBuffer;
+    bufferSource.connect(offlineCtx.destination);
+    bufferSource.start();
+    
+    const resampledBuffer = await offlineCtx.startRendering();
+    if (audioCtx.close) await audioCtx.close();
+
+    // Splitting logic: 10 minutes per chunk (600 seconds)
+    // 600s * 16000Hz * 2 bytes = 19.2 MB WAV files (safely under the strict 25MB Groq/OpenAI limit)
+    const CHUNK_DURATION_SEC = 600;
+    const samplesPerChunk = CHUNK_DURATION_SEC * TARGET_SAMPLE_RATE;
+    const totalChunks = Math.ceil(totalSamples / samplesPerChunk);
+    
+    this.log(`Splitting resampled audio into ${totalChunks} chunk(s) of ~10 minutes each...`);
+    const wavBlobs = [];
+    const channelData = resampledBuffer.getChannelData(0); // Float32Array
+
+    for (let i = 0; i < totalChunks; i++) {
+      const startSample = i * samplesPerChunk;
+      const endSample = Math.min(startSample + samplesPerChunk, totalSamples);
+      const chunkLength = endSample - startSample;
+      
+      const wavArrayBuffer = this._rawPcmToWav(channelData.subarray(startSample, endSample), TARGET_SAMPLE_RATE);
+      wavBlobs.push(new Blob([wavArrayBuffer], { type: "audio/wav" }));
+    }
+
+    return wavBlobs;
+  }
+
+  _rawPcmToWav(channelData, sampleRate) {
+    const format = 1; // raw PCM
+    const numOfChan = 1; // mono
+    const bitDepth = 16;
+    
+    const resultLength = channelData.length * 2 + 44;
+    const arrayBuffer = new ArrayBuffer(resultLength);
+    const view = new DataView(arrayBuffer);
+    
+    // RIFF identifier
+    view.setUint32(0, 0x52494646, false);
+    // file length minus RIFF identifier length
+    view.setUint32(4, resultLength - 8, true);
+    // RIFF type
+    view.setUint32(8, 0x57415645, false);
+    // format chunk identifier
+    view.setUint32(12, 0x666d7420, false);
+    // format chunk length
+    view.setUint32(16, 16, true);
+    // sample format (raw PCM)
+    view.setUint16(20, format, true);
+    // channel count
+    view.setUint16(22, numOfChan, true);
+    // sample rate
+    view.setUint32(24, sampleRate, true);
+    // byte rate (sample rate * block align)
+    view.setUint32(28, sampleRate * numOfChan * 2, true);
+    // block align (channel count * bytes per sample)
+    view.setUint16(32, numOfChan * 2, true);
+    // bits per sample
+    view.setUint16(34, bitDepth, true);
+    // data chunk identifier
+    view.setUint32(36, 0x64617461, false);
+    // chunk length
+    view.setUint32(40, resultLength - 44, true);
+    
+    let offset = 44;
+    for (let pos = 0; pos < channelData.length; pos++) {
+      let sample = channelData[pos];
+      sample = Math.max(-1, Math.min(1, sample));
+      sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+      view.setInt16(offset, sample, true);
+      offset += 2;
+    }
+    
+    return arrayBuffer;
+  }
+
+
+
   async _transcribeOpenAICompatible(blob, defaultModel) {
+    const filename = blob.type === "audio/mpeg" ? "audio.m4a" : "audio.wav";
     const formData = new FormData();
-    formData.append("file", blob, "audio.mp3");
     formData.append("model", defaultModel);
+    formData.append("file", blob, filename);
 
     const res = await fetch(this.baseUrl, {
       method: "POST",
@@ -128,11 +269,13 @@ class CustomAudioTranscriber {
   }
 
   async _transcribeDeepgram(blob) {
-    const res = await fetch(`${this.baseUrl}?model=nova-2&smart_format=true`, {
+    const model = this.modelName || "nova-2";
+    const contentType = blob.type === "audio/mpeg" ? "audio/mpeg" : "audio/wav";
+    const res = await fetch(`${this.baseUrl}?model=${encodeURIComponent(model)}&smart_format=true`, {
       method: "POST",
       headers: {
         Authorization: `Token ${this.apiKey}`,
-        "Content-Type": "audio/mpeg",
+        "Content-Type": contentType,
       },
       body: blob,
     });
@@ -196,8 +339,9 @@ class CustomAudioTranscriber {
   }
 
   async _transcribeGladia(blob) {
+    const filename = blob.type === "audio/mpeg" ? "audio.m4a" : "audio.wav";
     const formData = new FormData();
-    formData.append("audio", blob, "audio.mp3");
+    formData.append("audio", blob, filename);
 
     const res = await fetch("https://api.gladia.io/v2/transcription/", {
       method: "POST",
@@ -231,9 +375,11 @@ class CustomAudioTranscriber {
   }
 
   async _transcribeElevenLabs(blob) {
+    const filename = blob.type === "audio/mpeg" ? "audio.m4a" : "audio.wav";
+
     const formData = new FormData();
-    formData.append("file", blob, "audio.mp3");
-    formData.append("model_id", "scribe_v1");
+    formData.append("model_id", this.modelName || "scribe_v1");
+    formData.append("file", blob, filename);
 
     const res = await fetch(this.baseUrl, {
       method: "POST",

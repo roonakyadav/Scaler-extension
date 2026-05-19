@@ -14,6 +14,8 @@ const btnDivider = document.getElementById("btn-divider");
 
 const providerSelect = document.getElementById("provider-select");
 const baseUrlInput = document.getElementById("base-url");
+const modelInput = document.getElementById("model-name");
+const modelLabel = document.getElementById("model-name-label");
 const apiKeyInput = document.getElementById("api-key");
 const getKeyLink = document.getElementById("get-key-link");
 
@@ -21,7 +23,8 @@ const CONCURRENCY = 6;
 
 // ── Backend Cache Config ──
 const BACKEND_BASE_URL = "https://scalerbackend.vercel.app";
-const EXTENSION_TOKEN = "Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345";
+const EXTENSION_TOKEN =
+  "Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345";
 
 /**
  * Check the backend transcript cache for cacheKey.
@@ -35,7 +38,7 @@ async function checkTranscriptCache(key) {
       {
         method: "GET",
         headers: { Authorization: `Bearer ${EXTENSION_TOKEN}` },
-      }
+      },
     );
     if (!res.ok) return { cached: false };
     const data = await res.json();
@@ -83,7 +86,7 @@ async function saveTranscriptToCache(key, title, text) {
  *
  * Returns { ok: true } or { ok: false, reason: string }.
  */
-async function validateApiKey(baseUrl, apiKey) {
+async function validateApiKey(baseUrl, apiKey, modelName) {
   const u = baseUrl.toLowerCase();
 
   try {
@@ -94,59 +97,94 @@ async function validateApiKey(baseUrl, apiKey) {
       res = await fetch("https://api.deepgram.com/v1/projects", {
         headers: { Authorization: `Token ${apiKey}` },
       });
-
     } else if (u.includes("groq.com")) {
       // Groq: GET /openai/v1/models
       res = await fetch("https://api.groq.com/openai/v1/models", {
         headers: { Authorization: `Bearer ${apiKey}` },
       });
-
     } else if (u.includes("openai.com")) {
       // OpenAI: GET /v1/models
       res = await fetch("https://api.openai.com/v1/models", {
         headers: { Authorization: `Bearer ${apiKey}` },
       });
-
     } else if (u.includes("elevenlabs.io")) {
       // ElevenLabs: GET /v1/user
       res = await fetch("https://api.elevenlabs.io/v1/user", {
         headers: { "xi-api-key": apiKey },
       });
-
     } else if (u.includes("assemblyai.com")) {
       // AssemblyAI: GET /v2/account
       res = await fetch("https://api.assemblyai.com/v2/account", {
         headers: { authorization: apiKey },
       });
-
     } else if (u.includes("gladia.io")) {
       // Gladia: GET /v2/ listing endpoint
       res = await fetch("https://api.gladia.io/v2/", {
         headers: { "x-gladia-key": apiKey },
       });
-
     } else if (u.includes("wit.ai")) {
       // Wit.ai: GET /apps — bearer token is the key itself
       res = await fetch("https://api.wit.ai/apps?limit=1", {
         headers: { Authorization: `Bearer ${apiKey}` },
       });
-
     } else {
       // Custom / unknown provider: send a tiny silent WAV (44-byte minimal
       // header + silence) and look only for 401/403 to detect bad keys.
       // Any other status (400 format error, 413 size, etc.) means the key
       // itself is likely fine — we let the real transcription attempt proceed.
       const silentWav = new Uint8Array([
-        0x52,0x49,0x46,0x46, 0x24,0x00,0x00,0x00, // RIFF....$..
-        0x57,0x41,0x56,0x45, 0x66,0x6d,0x74,0x20, // WAVEfmt 
-        0x10,0x00,0x00,0x00, 0x01,0x00, 0x01,0x00, // PCM, 1ch
-        0x44,0xac,0x00,0x00, 0x88,0x58,0x01,0x00, // 44100 Hz
-        0x02,0x00, 0x10,0x00,                      // blockAlign, bitsPerSample
-        0x64,0x61,0x74,0x61, 0x00,0x00,0x00,0x00, // data chunk (0 bytes)
+        0x52,
+        0x49,
+        0x46,
+        0x46,
+        0x24,
+        0x00,
+        0x00,
+        0x00, // RIFF....$..
+        0x57,
+        0x41,
+        0x56,
+        0x45,
+        0x66,
+        0x6d,
+        0x74,
+        0x20, // WAVEfmt
+        0x10,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        0x01,
+        0x00, // PCM, 1ch
+        0x44,
+        0xac,
+        0x00,
+        0x00,
+        0x88,
+        0x58,
+        0x01,
+        0x00, // 44100 Hz
+        0x02,
+        0x00,
+        0x10,
+        0x00, // blockAlign, bitsPerSample
+        0x64,
+        0x61,
+        0x74,
+        0x61,
+        0x00,
+        0x00,
+        0x00,
+        0x00, // data chunk (0 bytes)
       ]);
       const formData = new FormData();
-      formData.append("file", new Blob([silentWav], { type: "audio/wav" }), "health.wav");
-      formData.append("model", "whisper-1");
+      formData.append("model", modelName || "whisper-1");
+      formData.append(
+        "file",
+        new Blob([silentWav], { type: "audio/wav" }),
+        "health.wav",
+      );
 
       res = await fetch(baseUrl, {
         method: "POST",
@@ -166,10 +204,11 @@ async function validateApiKey(baseUrl, apiKey) {
     }
     if (!res.ok) {
       // Unexpected server error — treat as "key probably fine, let transcription try"
-      console.warn(`[Scaler++] Health check returned HTTP ${res.status} — proceeding anyway.`);
+      console.warn(
+        `[Scaler++] Health check returned HTTP ${res.status} — proceeding anyway.`,
+      );
     }
     return { ok: true };
-
   } catch (e) {
     // Network error (CORS on health endpoint, offline, etc.) —
     // don't block the user; let the actual transcription surface the real error.
@@ -248,14 +287,14 @@ cacheBtn.addEventListener("click", async () => {
     } else {
       log("Cache MISS — no cached transcript found for this lecture.");
       statusText.innerText = "Not in cache. Use your API key to transcribe.";
-      cacheBtn.textContent = "⚡ Load from Cache";
+      cacheBtn.textContent = "⚡ Check Cache";
       cacheBtn.disabled = false;
       startBtn.disabled = false;
     }
   } catch (err) {
     log(`❌ Cache check error: ${err.message}`);
     statusText.innerText = "Cache check failed.";
-    cacheBtn.textContent = "⚡ Load from Cache";
+    cacheBtn.textContent = "⚡ Check Cache";
     cacheBtn.disabled = false;
     startBtn.disabled = false;
   }
@@ -263,10 +302,25 @@ cacheBtn.addEventListener("click", async () => {
 
 // ── Configuration Management ──
 
+const PROVIDER_DEFAULT_MODELS = {
+  deepgram: "nova-2",
+  groq: "whisper-large-v3",
+  openai: "whisper-1",
+  elevenlabs: "scribe_v1",
+  gladia: "",
+  assemblyai: "",
+  speechmatics: "",
+  soniox: "",
+  revai: "",
+  witai: "",
+  custom: "whisper-1"
+};
+
 function saveConfig() {
   const config = {
     provider: providerSelect.value,
     baseUrl: baseUrlInput.value,
+    model: modelInput.value,
     apiKey: apiKeyInput.value,
   };
   chrome.storage.local.set({ scaler_transcript_config: config }, () => {
@@ -281,38 +335,58 @@ function loadConfig() {
       if (config.provider) providerSelect.value = config.provider;
       if (config.baseUrl) baseUrlInput.value = config.baseUrl;
       if (config.apiKey) apiKeyInput.value = config.apiKey;
-      updateProviderLink();
+      if (config.model !== undefined) {
+        modelInput.value = config.model;
+      } else {
+        modelInput.value = PROVIDER_DEFAULT_MODELS[providerSelect.value] || "";
+      }
+      updateProviderLink(false);
     }
   });
 }
 
-function updateProviderLink() {
+function updateProviderLink(shouldResetModel = true) {
   const selectedOption = providerSelect.options[providerSelect.selectedIndex];
   const url = selectedOption.getAttribute("data-url");
   const link = selectedOption.getAttribute("data-link");
-  
+
   if (providerSelect.value !== "custom" && url) {
     baseUrlInput.value = url;
   }
+
+  if (shouldResetModel) {
+    modelInput.value = PROVIDER_DEFAULT_MODELS[providerSelect.value] || "";
+  }
+
+  const defaultModel = PROVIDER_DEFAULT_MODELS[providerSelect.value];
+  const hasModel = defaultModel !== undefined && defaultModel !== "";
   
+  if (hasModel || providerSelect.value === "custom") {
+    modelInput.style.display = "block";
+    if (modelLabel) modelLabel.style.display = "block";
+  } else {
+    modelInput.style.display = "none";
+    if (modelLabel) modelLabel.style.display = "none";
+  }
+
   if (link) {
     getKeyLink.href = link;
-    getKeyLink.innerText = `Get API Key for ${selectedOption.text.split(' (')[0]}`;
+    getKeyLink.innerText = `Get API Key for ${selectedOption.text.split(" (")[0]}`;
     getKeyLink.style.display = "inline-block";
   } else {
     getKeyLink.style.display = "none";
   }
-  
+
   saveConfig();
 }
 
-providerSelect.addEventListener("change", updateProviderLink);
+providerSelect.addEventListener("change", () => updateProviderLink(true));
 baseUrlInput.addEventListener("input", saveConfig);
+modelInput.addEventListener("input", saveConfig);
 apiKeyInput.addEventListener("input", saveConfig);
 
 // Initialize config
 loadConfig();
-
 
 // ── M3U8 Download Helpers ──
 
@@ -325,13 +399,16 @@ async function fetchText(url) {
         (response) => {
           if (chrome.runtime.lastError) {
             console.error("Proxy error:", chrome.runtime.lastError);
-            fetch(url).then(res => res.text()).then(resolve).catch(reject);
+            fetch(url)
+              .then((res) => res.text())
+              .then(resolve)
+              .catch(reject);
           } else if (response && response.success) {
             resolve(response.data);
           } else {
             reject(new Error(response?.error || "Proxy fetch failed"));
           }
-        }
+        },
       );
     });
   }
@@ -421,10 +498,10 @@ async function fetchChunk(url, index) {
               } else {
                 reject(new Error(resp?.error || "Proxy fetch failed"));
               }
-            }
+            },
           );
         });
-        
+
         const uint8 = new Uint8Array(response);
         return uint8.buffer;
       } else {
@@ -433,7 +510,8 @@ async function fetchChunk(url, index) {
         return await res.arrayBuffer();
       }
     } catch (e) {
-      if (retry < 2) await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
+      if (retry < 2)
+        await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
     }
   }
   return null;
@@ -485,7 +563,10 @@ async function downloadToMemory(segments, audioExtractor) {
   const combined = new Uint8Array(totalBytes);
   let offset = 0;
   for (const chunk of audioChunks) {
-    combined.set(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk), offset);
+    combined.set(
+      chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk),
+      offset,
+    );
     offset += chunk.byteLength;
   }
 
@@ -494,7 +575,11 @@ async function downloadToMemory(segments, audioExtractor) {
 
 function getSuggestedName(ext) {
   if (videoTitle) {
-    const slug = videoTitle.replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, "_").substring(0, 80).replace(/_+$/, "");
+    const slug = videoTitle
+      .replace(/[\\/:*?"<>|]/g, "")
+      .replace(/\s+/g, "_")
+      .substring(0, 80)
+      .replace(/_+$/, "");
     if (slug) return `${slug}.${ext}`;
   }
   return `Scaler_Lecture.${ext}`;
@@ -505,7 +590,8 @@ function getSuggestedName(ext) {
 startBtn.addEventListener("click", async () => {
   const baseUrl = baseUrlInput.value.trim();
   const apiKey = apiKeyInput.value.trim();
-  
+  const modelName = modelInput.value.trim();
+
   if (!baseUrl || !apiKey) {
     alert("Please provide both Base URL and API Key.");
     return;
@@ -518,6 +604,7 @@ startBtn.addEventListener("click", async () => {
     // Disable inputs during processing
     providerSelect.disabled = true;
     baseUrlInput.disabled = true;
+    modelInput.disabled = true;
     apiKeyInput.disabled = true;
 
     // ── STEP 0: Cache Check ──────────────────────────────────────
@@ -552,13 +639,14 @@ startBtn.addEventListener("click", async () => {
     // ── STEP 1: API Key Health Check ────────────────────────────
     log("Step 1/3: Validating API key...");
     statusText.innerText = "Step 1/3: Validating API key...";
-    const health = await validateApiKey(baseUrl, apiKey);
+    const health = await validateApiKey(baseUrl, apiKey, modelName);
     if (!health.ok) {
       log(`❌ API key invalid: ${health.reason}`);
       statusText.innerText = `❌ API Key Error: ${health.reason}`;
       // Re-enable inputs so user can fix the key
       providerSelect.disabled = false;
       baseUrlInput.disabled = false;
+      modelInput.disabled = false;
       apiKeyInput.disabled = false;
       startBtn.disabled = false;
       cacheBtn.disabled = false;
@@ -582,20 +670,25 @@ startBtn.addEventListener("click", async () => {
     progressBar.style.width = "0%";
     chunksText.innerText = "—";
     percentText.innerText = "0%";
-    
+
     statusText.innerText = "Step 3/3: Transcribing via your API...";
-    
-    const transcriber = new CustomAudioTranscriber(baseUrl, apiKey, log);
-    
+
+    const transcriber = new CustomAudioTranscriber(baseUrl, apiKey, modelName, log);
+
     const startTime = Date.now();
-    const transcript = await transcriber.transcribe(audioBuffer, (pct, current, total) => {
-      progressBar.style.width = pct.toFixed(1) + "%";
-      chunksText.innerText = `${current} / ${total} segments`;
-      percentText.innerText = `${pct.toFixed(1)}%`;
-    });
+    const transcript = await transcriber.transcribe(
+      audioBuffer,
+      (pct, current, total) => {
+        progressBar.style.width = pct.toFixed(1) + "%";
+        chunksText.innerText = `${current} / ${total} segments`;
+        percentText.innerText = `${pct.toFixed(1)}%`;
+      },
+    );
 
     if (!transcript || transcript.trim().length === 0) {
-      throw new Error("Transcription produced no text. Audio may be silent or unsupported.");
+      throw new Error(
+        "Transcription produced no text. Audio may be silent or unsupported.",
+      );
     }
 
     // Save locally
@@ -636,7 +729,6 @@ startBtn.addEventListener("click", async () => {
         });
       }
     });
-
   } catch (err) {
     log(`❌ Error: ${err.message}`);
     console.error(err);
@@ -647,6 +739,7 @@ startBtn.addEventListener("click", async () => {
     cacheBtn.disabled = false;
     providerSelect.disabled = false;
     baseUrlInput.disabled = false;
+    modelInput.disabled = false;
     apiKeyInput.disabled = false;
   }
 });
