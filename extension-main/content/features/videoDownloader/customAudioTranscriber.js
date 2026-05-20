@@ -52,8 +52,6 @@ class CustomAudioTranscriber {
     const isOpenAI = this.baseUrl.includes("openai.com");
     const isGroq = this.baseUrl.includes("groq.com");
     const isDeepgram = this.baseUrl.includes("deepgram.com");
-    const isAssembly = this.baseUrl.includes("assemblyai.com");
-    const isGladia = this.baseUrl.includes("gladia.io");
     const isElevenLabs = this.baseUrl.includes("elevenlabs.io");
 
     // Pre-process raw AAC/TS data: Decode entire stream, resample to 16kHz Mono, and split into safe 10-minute WAV chunks
@@ -76,10 +74,6 @@ class CustomAudioTranscriber {
           try {
             if (isDeepgram) {
               text = await this._transcribeDeepgram(blob);
-            } else if (isAssembly) {
-              text = await this._transcribeAssemblyAI(blob);
-            } else if (isGladia) {
-              text = await this._transcribeGladia(blob);
             } else if (isElevenLabs) {
               text = await this._transcribeElevenLabs(blob);
             } else {
@@ -269,7 +263,7 @@ class CustomAudioTranscriber {
   }
 
   async _transcribeDeepgram(blob) {
-    const model = this.modelName || "nova-2";
+    const model = this.modelName || "nova-3";
     const contentType = blob.type === "audio/mpeg" ? "audio/mpeg" : "audio/wav";
     const res = await fetch(`${this.baseUrl}?model=${encodeURIComponent(model)}&smart_format=true`, {
       method: "POST",
@@ -287,91 +281,6 @@ class CustomAudioTranscriber {
 
     const data = await res.json();
     return data.results?.channels[0]?.alternatives[0]?.transcript || "";
-  }
-
-  async _transcribeAssemblyAI(blob) {
-    // 1. Upload
-    this.log("  Uploading chunk to AssemblyAI...");
-    const uploadRes = await fetch("https://api.assemblyai.com/v2/upload", {
-      method: "POST",
-      headers: { authorization: this.apiKey },
-      body: blob,
-    });
-
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      throw new Error(`Upload HTTP ${uploadRes.status}: ${errText}`);
-    }
-    const uploadData = await uploadRes.json();
-    const audioUrl = uploadData.upload_url;
-
-    // 2. Transcribe
-    this.log("  Starting AssemblyAI transcription job...");
-    const transcriptRes = await fetch("https://api.assemblyai.com/v2/transcript", {
-      method: "POST",
-      headers: {
-        authorization: this.apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ audio_url: audioUrl }),
-    });
-
-    if (!transcriptRes.ok) {
-      const errText = await transcriptRes.text();
-      throw new Error(`Transcript HTTP ${transcriptRes.status}: ${errText}`);
-    }
-    const transcriptData = await transcriptRes.json();
-    const transcriptId = transcriptData.id;
-
-    // 3. Poll
-    while (true) {
-      await new Promise((r) => setTimeout(r, 3000));
-      const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
-        headers: { authorization: this.apiKey },
-      });
-      const pollData = await pollRes.json();
-      if (pollData.status === "completed") {
-        return pollData.text;
-      } else if (pollData.status === "error") {
-        throw new Error(`AssemblyAI Error: ${pollData.error}`);
-      }
-    }
-  }
-
-  async _transcribeGladia(blob) {
-    const filename = blob.type === "audio/mpeg" ? "audio.m4a" : "audio.wav";
-    const formData = new FormData();
-    formData.append("audio", blob, filename);
-
-    const res = await fetch("https://api.gladia.io/v2/transcription/", {
-      method: "POST",
-      headers: {
-        "x-gladia-key": this.apiKey,
-      },
-      body: formData,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`HTTP ${res.status}: ${errText}`);
-    }
-
-    const data = await res.json();
-    const resultUrl = data.result_url;
-    
-    // Poll gladia result
-    while (true) {
-      await new Promise((r) => setTimeout(r, 3000));
-      const pollRes = await fetch(resultUrl, {
-        headers: { "x-gladia-key": this.apiKey },
-      });
-      const pollData = await pollRes.json();
-      if (pollData.status === "done") {
-        return pollData.result?.transcription?.full_transcript || "";
-      } else if (pollData.status === "error") {
-        throw new Error("Gladia Transcription failed.");
-      }
-    }
   }
 
   async _transcribeElevenLabs(blob) {

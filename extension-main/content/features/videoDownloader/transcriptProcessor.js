@@ -112,21 +112,6 @@ async function validateApiKey(baseUrl, apiKey, modelName) {
       res = await fetch("https://api.elevenlabs.io/v1/user", {
         headers: { "xi-api-key": apiKey },
       });
-    } else if (u.includes("assemblyai.com")) {
-      // AssemblyAI: GET /v2/account
-      res = await fetch("https://api.assemblyai.com/v2/account", {
-        headers: { authorization: apiKey },
-      });
-    } else if (u.includes("gladia.io")) {
-      // Gladia: GET /v2/ listing endpoint
-      res = await fetch("https://api.gladia.io/v2/", {
-        headers: { "x-gladia-key": apiKey },
-      });
-    } else if (u.includes("wit.ai")) {
-      // Wit.ai: GET /apps — bearer token is the key itself
-      res = await fetch("https://api.wit.ai/apps?limit=1", {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
     } else {
       // Custom / unknown provider: send a tiny silent WAV (44-byte minimal
       // header + silence) and look only for 401/403 to detect bad keys.
@@ -194,18 +179,33 @@ async function validateApiKey(baseUrl, apiKey, modelName) {
 
       // Only a 401/403 conclusively means a bad key
       if (res.status === 401 || res.status === 403) {
-        return { ok: false, reason: `API key rejected (HTTP ${res.status})` };
+        let bodyText = "";
+        try {
+          bodyText = await res.text();
+        } catch (_) {}
+        const errorMsg = `HTTP ${res.status}${bodyText ? ": " + bodyText : ""}`;
+        log(`❌ API key check failed. Detail: ${errorMsg}`);
+        return { ok: false, reason: errorMsg };
       }
       return { ok: true }; // any other status — key is accepted
     }
 
-    if (res.status === 401 || res.status === 403) {
-      return { ok: false, reason: `API key rejected (HTTP ${res.status})` };
-    }
     if (!res.ok) {
-      // Unexpected server error — treat as "key probably fine, let transcription try"
+      let bodyText = "";
+      try {
+        bodyText = await res.text();
+      } catch (_) {}
+      
+      const errorMsg = `HTTP ${res.status}${bodyText ? ": " + bodyText : ""}`;
+      log(`❌ API key check failed. Detail: ${errorMsg}`);
+      
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, reason: errorMsg };
+      }
+      
+      // Unexpected server error (like 500, 502) — treat as "key probably fine, let transcription try"
       console.warn(
-        `[Scaler++] Health check returned HTTP ${res.status} — proceeding anyway.`,
+        `[Scaler++] Health check returned ${errorMsg} — proceeding anyway.`,
       );
     }
     return { ok: true };
@@ -303,17 +303,11 @@ cacheBtn.addEventListener("click", async () => {
 // ── Configuration Management ──
 
 const PROVIDER_DEFAULT_MODELS = {
-  deepgram: "nova-2",
   groq: "whisper-large-v3",
+  deepgram: "nova-3",
   openai: "whisper-1",
   elevenlabs: "scribe_v1",
-  gladia: "",
-  assemblyai: "",
-  speechmatics: "",
-  soniox: "",
-  revai: "",
-  witai: "",
-  custom: "whisper-1"
+  custom: "",
 };
 
 function saveConfig() {
@@ -340,8 +334,8 @@ function loadConfig() {
       } else {
         modelInput.value = PROVIDER_DEFAULT_MODELS[providerSelect.value] || "";
       }
-      updateProviderLink(false);
     }
+    updateProviderLink(false);
   });
 }
 
@@ -360,7 +354,7 @@ function updateProviderLink(shouldResetModel = true) {
 
   const defaultModel = PROVIDER_DEFAULT_MODELS[providerSelect.value];
   const hasModel = defaultModel !== undefined && defaultModel !== "";
-  
+
   if (hasModel || providerSelect.value === "custom") {
     modelInput.style.display = "block";
     if (modelLabel) modelLabel.style.display = "block";
@@ -384,6 +378,23 @@ providerSelect.addEventListener("change", () => updateProviderLink(true));
 baseUrlInput.addEventListener("input", saveConfig);
 modelInput.addEventListener("input", saveConfig);
 apiKeyInput.addEventListener("input", saveConfig);
+
+// Toggle API Key visibility
+const toggleApiKeyBtn = document.getElementById("toggle-api-key-btn");
+if (toggleApiKeyBtn) {
+  const EYE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+  const EYE_OFF_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
+
+  toggleApiKeyBtn.addEventListener("click", () => {
+    if (apiKeyInput.type === "password") {
+      apiKeyInput.type = "text";
+      toggleApiKeyBtn.innerHTML = EYE_OFF_SVG;
+    } else {
+      apiKeyInput.type = "password";
+      toggleApiKeyBtn.innerHTML = EYE_SVG;
+    }
+  });
+}
 
 // Initialize config
 loadConfig();
@@ -673,7 +684,12 @@ startBtn.addEventListener("click", async () => {
 
     statusText.innerText = "Step 3/3: Transcribing via your API...";
 
-    const transcriber = new CustomAudioTranscriber(baseUrl, apiKey, modelName, log);
+    const transcriber = new CustomAudioTranscriber(
+      baseUrl,
+      apiKey,
+      modelName,
+      log,
+    );
 
     const startTime = Date.now();
     const transcript = await transcriber.transcribe(
