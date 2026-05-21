@@ -240,8 +240,8 @@ if (titleElem && videoTitle) {
 
 // ── Show the cache button whenever we have a lookup key ──
 if (cacheKey) {
-  cacheBtn.style.display = "block";
-  btnDivider.style.display = "flex";
+  if (cacheBtn) cacheBtn.style.display = "block";
+  if (btnDivider) btnDivider.style.display = "flex";
 }
 
 if (!m3u8Url) {
@@ -254,7 +254,8 @@ if (!m3u8Url) {
 }
 
 // ── Cache Button: check cache and download instantly (no API key needed) ──
-cacheBtn.addEventListener("click", async () => {
+if (cacheBtn) {
+  cacheBtn.addEventListener("click", async () => {
   if (!cacheKey) return;
 
   cacheBtn.disabled = true;
@@ -298,7 +299,8 @@ cacheBtn.addEventListener("click", async () => {
     cacheBtn.disabled = false;
     startBtn.disabled = false;
   }
-});
+  });
+}
 
 // ── Configuration Management ──
 
@@ -610,7 +612,7 @@ startBtn.addEventListener("click", async () => {
 
   try {
     startBtn.disabled = true;
-    cacheBtn.disabled = true;
+    if (cacheBtn) cacheBtn.disabled = true;
 
     // Disable inputs during processing
     providerSelect.disabled = true;
@@ -660,7 +662,7 @@ startBtn.addEventListener("click", async () => {
       modelInput.disabled = false;
       apiKeyInput.disabled = false;
       startBtn.disabled = false;
-      cacheBtn.disabled = false;
+      if (cacheBtn) cacheBtn.disabled = false;
       return;
     }
     log("✅ API key validated successfully.");
@@ -752,7 +754,7 @@ startBtn.addEventListener("click", async () => {
     progressBar.style.background = "#ef4444";
   } finally {
     startBtn.disabled = false;
-    cacheBtn.disabled = false;
+    if (cacheBtn) cacheBtn.disabled = false;
     providerSelect.disabled = false;
     baseUrlInput.disabled = false;
     modelInput.disabled = false;

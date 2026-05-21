@@ -110,4 +110,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     return true;
   }
+
+  // ── Check transcript cache ───────────────────────────────────
+  if (message.action === "checkTranscriptCache") {
+    fetch(`${BACKEND_BASE_URL}/api/transcript?slug=${encodeURIComponent(message.slug)}`, {
+      method: "GET",
+      headers: { Authorization: "Bearer Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345" },
+    })
+      .then((res) => res.ok ? res.json() : { cached: false })
+      .then((data) => {
+        sendResponse({ success: true, data });
+      })
+      .catch((error) => {
+        console.error("Scaler++: Error checking transcript cache", error);
+        sendResponse({ success: false, error: error.toString() });
+      });
+      
+    return true;
+  }
 });

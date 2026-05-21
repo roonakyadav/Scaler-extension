@@ -318,8 +318,26 @@ class VideoDownloader {
       .getElementById("scaler-video-downloader")
       .querySelector("a");
     const originalIcon = btn.innerHTML;
-    btn.innerHTML =
-      '<span style="font-size:12px; font-weight:bold;">...</span>';
+    
+    if (type === "transcript") {
+      btn.innerHTML = '<svg class="scaler-spinner" viewBox="0 0 50 50" style="width:20px;height:20px;animation:rotate 2s linear infinite;"><circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" style="stroke-dasharray:1, 200;stroke-dashoffset:0;animation:dash 1.5s ease-in-out infinite;"></circle></svg>';
+      if (!document.getElementById("scaler-spinner-style")) {
+        const style = document.createElement("style");
+        style.id = "scaler-spinner-style";
+        style.textContent = `
+          @keyframes rotate { 100% { transform: rotate(360deg); } }
+          @keyframes dash {
+            0% { stroke-dasharray: 1, 200; stroke-dashoffset: 0; }
+            50% { stroke-dasharray: 89, 200; stroke-dashoffset: -35px; }
+            100% { stroke-dasharray: 89, 200; stroke-dashoffset: -124px; }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    } else {
+      btn.innerHTML =
+        '<span style="font-size:12px; font-weight:bold;">...</span>';
+    }
 
     // Ensure the lecture slug is resolved BEFORE proceeding.
     // This handles SPA navigation where the slug wasn't fetched yet.
@@ -330,6 +348,39 @@ class VideoDownloader {
       console.warn(
         "[Scaler++] Could not resolve lecture slug — falling back to title.",
       );
+    }
+    
+    if (type === "transcript") {
+      const cacheKey = slug || document.title;
+      if (cacheKey) {
+        const cacheResult = await new Promise(resolve => {
+            chrome.runtime.sendMessage({ action: "checkTranscriptCache", slug: cacheKey }, (resp) => {
+                if (chrome.runtime.lastError) resolve(null);
+                else resolve(resp);
+            });
+        });
+        
+        if (cacheResult && cacheResult.success && cacheResult.data && cacheResult.data.cached && cacheResult.data.text) {
+            console.log("[Scaler++] Transcript loaded from cache.");
+            const blob = new Blob([cacheResult.data.text], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            const videoTitle = document.title || "";
+            const slugTitle = videoTitle
+              .replace(/[\\/:*?"<>|]/g, "")
+              .replace(/\\s+/g, "_")
+              .substring(0, 80)
+              .replace(/_+$/, "");
+            a.download = slugTitle ? `${slugTitle}.txt` : "Scaler_Lecture.txt";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            btn.innerHTML = originalIcon;
+            return;
+        }
+      }
     }
 
     chrome.runtime.sendMessage({ type: "GET_VIDEO_URL" }, (response) => {
