@@ -122,9 +122,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       } else {
         // teardown lecture-info: disconnect observer and remove injected tags
         try {
-          if (window._instructorInfoObserver) {
-            window._instructorInfoObserver.disconnect();
-            window._instructorInfoObserver = null;
+          if (window._instructorInfoObserver_lecture) {
+            window._instructorInfoObserver_lecture.disconnect();
+            window._instructorInfoObserver_lecture = null;
           }
         } catch (e) {
           console.warn("Error tearing down lecture-info observer", e);

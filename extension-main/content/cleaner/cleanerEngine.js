@@ -343,6 +343,11 @@ function injectMessFeeCheckbox() {
       }
     }
 
+    // Make sure the card is visible if there is a typeform button and it's not filled
+    if (!isFilled) {
+      card.classList.remove(HIDDEN_CLASS);
+    }
+
     // ── Checkbox injection ─────────────────────────────────────────────────
     if (card.hasAttribute("data-mess-fee-injected")) return;
     card.setAttribute("data-mess-fee-injected", "true");

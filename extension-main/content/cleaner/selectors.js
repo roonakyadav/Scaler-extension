@@ -38,9 +38,10 @@ const DEFAULT_SETTINGS = {
   "practice-mode-days": 7,
   "practice-mode-start": null,
 
-  // Assignments
   companion: true,
   "subject-sort": true,
+  "lecture-info": true,
+  "instructor-info": true,
   "mess-fee-filled-timestamp": null,
 
   // Contest
@@ -77,31 +78,7 @@ const TODOS_PAGE_SELECTORS = [
   {
     key: "mess-fee",
     selector: "a.mentee-card",
-    verify: (el) => {
-      const isMessFee = el.textContent.includes("Mess Fee");
-      if (!isMessFee) return false;
-      const today = new Date();
-
-      // Check if user filled it manually within the last 12 days
-      const filledTimestamp = currentSettings["mess-fee-filled-timestamp"];
-      if (filledTimestamp) {
-        const daysSince =
-          (today.getTime() - new Date(filledTimestamp).getTime()) /
-          (1000 * 60 * 60 * 24);
-        if (daysSince <= 12) {
-          return true; // It matches the criteria to be hidden because it is filled
-        }
-      }
-
-      const lastDayOfMonth = new Date(
-        today.getFullYear(),
-        today.getMonth() + 1,
-        0,
-      ).getDate();
-      const dayOfMonth = today.getDate();
-      const isLast10Days = dayOfMonth > lastDayOfMonth - 10;
-      return !isLast10Days;
-    },
+    verify: (el) => el.textContent.includes("Mess Fee"),
   },
   {
     key: "continue-watching",

@@ -2,6 +2,7 @@
 // features/instructorInfo.js
 // Dashboard tags + instructor tab on class session page
 // ============================================
+(function(global) {
 
 const INSTRUCTOR_CONTAINER_CLASS = "scaler-instructor-info";
 const INSTRUCTOR_TAG_CLASS = "scaler-instructor-tag";
@@ -172,6 +173,9 @@ function _applyInstructorInfo(card, lecture) {
 	const header = card.querySelector(".mentee-card__header");
 	if (!header || !lecture) return;
 
+	// Prevent duplication if lectureInfo.js already added tags
+	if (header.querySelector(".scaler-lecture-instructor-info")) return;
+
 	const subject = _cleanBatchName(lecture.super_batch_name || "");
 	const instructor = lecture.instructors_name || "";
 
@@ -241,7 +245,6 @@ async function _injectDashboardInstructorInfo() {
 	}
 
 	cards.forEach((card) => {
-		if (!card.classList.contains(INSTRUCTOR_CARD_CLASS)) return;
 		const href = card.getAttribute("href");
 		const classId = _extractClassId(href);
 		if (!classId) return;
@@ -579,7 +582,7 @@ function _teardownSessionObserver() {
 	}
 }
 
-function initInstructorInfo() {
+global.initInstructorInfo = function() {
 	if (_isTodosDashboard()) {
 		_injectDashboardInstructorInfo();
 		_observeDashboardForInstructorInfo();
@@ -595,4 +598,5 @@ function initInstructorInfo() {
 	} else {
 		_teardownSessionObserver();
 	}
-}
+};
+})(window);

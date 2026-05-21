@@ -56,6 +56,9 @@ class CustomAudioTranscriber {
 
     // Pre-process raw AAC/TS data: Decode entire stream, resample to 16kHz Mono, and split into safe 10-minute WAV chunks
     const wavBlobs = await this._prepareWavBlobs(audioBuffer);
+    if (!wavBlobs || wavBlobs.length === 0) {
+      throw new Error("Failed to decode audio into a supported format.");
+    }
     const totalChunks = wavBlobs.length;
     const transcriptParts = new Array(totalChunks);
 
@@ -136,57 +139,124 @@ class CustomAudioTranscriber {
       decodedBuffer = await audioCtx.decodeAudioData(rawAudioBuffer.slice(0));
     } catch (e) {
       this.log(`⚠ Web Audio decode failed: ${e.message}`);
+      this.log("Fallback: Attempting chunked ADTS decode to WAV...");
+      const fallbackBlobs = await this._decodeAdtsInChunks(rawAudioBuffer, audioCtx);
       if (audioCtx.close) await audioCtx.close();
-      
-      this.log("Fallback: Splitting raw audio into 20MB chunks without WAV conversion.");
-      // Fallback: chunk the raw audio buffer into 20MB chunks and return raw Blobs.
-      // We will pretend they are "audio.m4a" to bypass the API's strict file-type check.
-      const CHUNK_SIZE = 20 * 1024 * 1024;
-      const totalFallbackChunks = Math.ceil(rawAudioBuffer.byteLength / CHUNK_SIZE);
-      const rawBlobs = [];
-      for (let i = 0; i < totalFallbackChunks; i++) {
-        const start = i * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, rawAudioBuffer.byteLength);
-        const chunk = rawAudioBuffer.slice(start, end);
-        rawBlobs.push(new Blob([chunk], { type: "audio/mpeg" }));
-      }
-      return rawBlobs;
+      return fallbackBlobs;
     }
+    const wavBlobs = await this._resampleToWavBlobs(decodedBuffer);
+    if (audioCtx.close) await audioCtx.close();
+    return wavBlobs;
+  }
 
+  async _resampleToWavBlobs(decodedBuffer) {
     this.log(`Decoded duration: ${Math.round(decodedBuffer.duration)} seconds. Resampling to 16kHz Mono...`);
-    
+
     const TARGET_SAMPLE_RATE = 16000;
     const totalSamples = Math.ceil(decodedBuffer.duration * TARGET_SAMPLE_RATE);
-    
+
     const offlineCtx = new OfflineAudioContext(1, totalSamples, TARGET_SAMPLE_RATE);
     const bufferSource = offlineCtx.createBufferSource();
     bufferSource.buffer = decodedBuffer;
     bufferSource.connect(offlineCtx.destination);
     bufferSource.start();
-    
-    const resampledBuffer = await offlineCtx.startRendering();
-    if (audioCtx.close) await audioCtx.close();
 
-    // Splitting logic: 10 minutes per chunk (600 seconds)
-    // 600s * 16000Hz * 2 bytes = 19.2 MB WAV files (safely under the strict 25MB Groq/OpenAI limit)
+    const resampledBuffer = await offlineCtx.startRendering();
+
+    // 10 minutes per chunk (600 seconds) => ~19.2 MB WAV files at 16kHz mono
     const CHUNK_DURATION_SEC = 600;
     const samplesPerChunk = CHUNK_DURATION_SEC * TARGET_SAMPLE_RATE;
     const totalChunks = Math.ceil(totalSamples / samplesPerChunk);
-    
+
     this.log(`Splitting resampled audio into ${totalChunks} chunk(s) of ~10 minutes each...`);
     const wavBlobs = [];
-    const channelData = resampledBuffer.getChannelData(0); // Float32Array
+    const channelData = resampledBuffer.getChannelData(0);
 
     for (let i = 0; i < totalChunks; i++) {
       const startSample = i * samplesPerChunk;
       const endSample = Math.min(startSample + samplesPerChunk, totalSamples);
-      const chunkLength = endSample - startSample;
-      
       const wavArrayBuffer = this._rawPcmToWav(channelData.subarray(startSample, endSample), TARGET_SAMPLE_RATE);
       wavBlobs.push(new Blob([wavArrayBuffer], { type: "audio/wav" }));
     }
 
     return wavBlobs;
+  }
+
+  async _decodeAdtsInChunks(rawAudioBuffer, audioCtx) {
+    const frames = this._extractAdtsFrames(new Uint8Array(rawAudioBuffer));
+    if (frames.length === 0) {
+      this.log("⚠ No ADTS frames detected in raw audio.");
+      return [];
+    }
+
+    const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
+    const chunkBuffers = this._buildAdtsChunks(frames, MAX_CHUNK_BYTES);
+    const wavBlobs = [];
+
+    for (let i = 0; i < chunkBuffers.length; i++) {
+      try {
+        const decoded = await audioCtx.decodeAudioData(chunkBuffers[i].slice(0));
+        const chunkWavs = await this._resampleToWavBlobs(decoded);
+        for (const blob of chunkWavs) wavBlobs.push(blob);
+      } catch (e) {
+        this.log(`⚠ Chunked decode failed for part ${i + 1}: ${e.message}`);
+      }
+    }
+
+    return wavBlobs;
+  }
+
+  _extractAdtsFrames(data) {
+    const frames = [];
+    let i = 0;
+
+    while (i < data.length - 7) {
+      if (data[i] === 0xff && (data[i + 1] & 0xf0) === 0xf0) {
+        const frameLen =
+          ((data[i + 3] & 0x03) << 11) |
+          (data[i + 4] << 3) |
+          ((data[i + 5] >> 5) & 0x07);
+
+        if (frameLen > 0 && i + frameLen <= data.length) {
+          frames.push(data.subarray(i, i + frameLen));
+          i += frameLen;
+          continue;
+        }
+      }
+      i++;
+    }
+
+    return frames;
+  }
+
+  _buildAdtsChunks(frames, maxBytes) {
+    const chunks = [];
+    let current = [];
+    let currentSize = 0;
+
+    for (const frame of frames) {
+      if (currentSize + frame.length > maxBytes && current.length > 0) {
+        chunks.push(this._concatUint8Arrays(current));
+        current = [];
+        currentSize = 0;
+      }
+      current.push(frame);
+      currentSize += frame.length;
+    }
+
+    if (current.length > 0) chunks.push(this._concatUint8Arrays(current));
+    return chunks;
+  }
+
+  _concatUint8Arrays(parts) {
+    const total = parts.reduce((sum, p) => sum + p.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const p of parts) {
+      out.set(p, offset);
+      offset += p.length;
+    }
+    return out.buffer;
   }
 
   _rawPcmToWav(channelData, sampleRate) {

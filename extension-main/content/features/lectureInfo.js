@@ -3,6 +3,7 @@
 // Adds lecture-instructor + subject info to dashboard class cards
 // ============================================
 
+(function(global) {
 const INSTRUCTOR_CARD_CLASS = "_1b4ouQze1boferRpnHE3E3";
 const LECTURE_INSTRUCTOR_CONTAINER_CLASS = "scaler-lecture-instructor-info";
 const LECTURE_INSTRUCTOR_TAG_CLASS = "scaler-lecture-instructor-tag";
@@ -119,6 +120,9 @@ function _applyInstructorInfo(card, lecture) {
   const header = card.querySelector(".mentee-card__header");
   if (!header || !lecture) return;
 
+  // Prevent duplication if instructorInfo.js already added tags
+  if (header.querySelector(".scaler-instructor-info")) return;
+
   const subject = _cleanBatchName(lecture.super_batch_name || "");
   const instructor = lecture.instructors_name || "";
 
@@ -155,7 +159,6 @@ function _applyInstructorInfo(card, lecture) {
     .querySelectorAll(`.${LECTURE_INSTRUCTOR_TAG_CLASS}`)
     .forEach((tag) => {
       tag.style.fontSize = "11px";
-      // tag.style.fontWeight = "700";
       tag.style.padding = "4px 6px";
       tag.style.borderRadius = "6px";
       tag.style.backgroundColor = "rgba(0, 115, 255, 0.08)";
@@ -186,7 +189,6 @@ async function _injectInstructorInfo() {
   }
 
   cards.forEach((card) => {
-    if (!card.classList.contains(INSTRUCTOR_CARD_CLASS)) return;
     const href = card.getAttribute("href");
     const classId = _extractClassId(href);
     if (!classId) return;
@@ -203,7 +205,7 @@ async function _injectInstructorInfo() {
 }
 
 function _observeDashboardForInstructorInfo() {
-  if (window._instructorInfoObserver) return;
+  if (window._instructorInfoObserver_lecture) return;
   if (!_isTodosDashboard()) return;
 
   let debounceTimer = null;
@@ -222,11 +224,17 @@ function _observeDashboardForInstructorInfo() {
     document.body;
 
   observer.observe(root, { childList: true, subtree: true });
-  window._instructorInfoObserver = observer;
+  window._instructorInfoObserver_lecture = observer;
 }
 
-function initLectureInfo() {
-  if (!_isTodosDashboard()) return;
-  _injectInstructorInfo();
-  _observeDashboardForInstructorInfo();
-}
+global.initLectureInfo = function() {
+  if (_isTodosDashboard()) {
+    _injectInstructorInfo();
+    _observeDashboardForInstructorInfo();
+  } else if (window._instructorInfoObserver_lecture) {
+    window._instructorInfoObserver_lecture.disconnect();
+    window._instructorInfoObserver_lecture = null;
+  }
+};
+
+})(window);

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Scaler++",
-  "version": "1.9.18",
+  "version": "1.9.20",
   "description": "Bypass companion-mode on campus WiFi, spotlight search, download lecture recordings & declutter Scaler dashboard",
   "permissions": [
     "storage",
@@ -20,7 +20,9 @@
   ],
   "oauth2": {
     "client_id": "240142215084-so5ckgh5al2d6aipa0fg9bsokt2gdp61.apps.googleusercontent.com",
-    "scopes": ["https://www.googleapis.com/auth/calendar.events"]
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.events"
+    ]
   },
   "background": {
     "service_worker": "background/background.js"
@@ -37,7 +39,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.scaler.com/*", "https://scaler.com/*"],
+      "matches": [
+        "https://www.scaler.com/*",
+        "https://scaler.com/*"
+      ],
       "js": [
         "content/cleaner/selectors.js",
         "content/core/settings.js",
@@ -64,7 +69,9 @@
         "content/features/liveStreamRecorder/liveStreamRecorder.js",
         "content/content.js"
       ],
-      "css": ["content/features/liveStreamRecorder/liveStreamRecorder.css"],
+      "css": [
+        "content/features/liveStreamRecorder/liveStreamRecorder.css"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -81,7 +88,10 @@
         "libs/agora-sdk.js",
         "content/features/liveStreamRecorder/recorderBridge.js"
       ],
-      "matches": ["https://www.scaler.com/*", "https://scaler.com/*"]
+      "matches": [
+        "https://www.scaler.com/*",
+        "https://scaler.com/*"
+      ]
     }
   ],
   "content_security_policy": {
