@@ -694,7 +694,7 @@ startBtn.addEventListener("click", async () => {
     );
 
     const startTime = Date.now();
-    const transcript = await transcriber.transcribe(
+    const transcribeResult = await transcriber.transcribe(
       audioBuffer,
       (pct, current, total) => {
         progressBar.style.width = pct.toFixed(1) + "%";
@@ -702,6 +702,9 @@ startBtn.addEventListener("click", async () => {
         percentText.innerText = `${pct.toFixed(1)}%`;
       },
     );
+
+    const transcript = transcribeResult.text;
+    const hasFailures = transcribeResult.hasFailures;
 
     if (!transcript || transcript.trim().length === 0) {
       throw new Error(
@@ -729,8 +732,12 @@ startBtn.addEventListener("click", async () => {
 
     // ── Save to backend cache (fire-and-forget) ───────────────
     if (cacheKey) {
-      log("Saving transcript to cache for future use...");
-      saveTranscriptToCache(cacheKey, videoTitle, transcript);
+      if (!hasFailures) {
+        log("Saving transcript to cache for future use...");
+        saveTranscriptToCache(cacheKey, videoTitle, transcript);
+      } else {
+        log("Skipping cache save: Some chunks failed to transcribe.");
+      }
     }
     // ─────────────────────────────────────────────────────────
 

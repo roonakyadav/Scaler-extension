@@ -64,6 +64,7 @@ class CustomAudioTranscriber {
 
     let nextChunkIndex = 0;
     let completedCount = 0;
+    let hasFailures = false;
 
     const worker = async () => {
       while (nextChunkIndex < totalChunks) {
@@ -99,6 +100,7 @@ class CustomAudioTranscriber {
           transcriptParts[i] = text.trim();
         } else {
           transcriptParts[i] = ""; // Keep place in array even if chunk completely failed
+          hasFailures = true;
         }
 
         completedCount++;
@@ -120,7 +122,10 @@ class CustomAudioTranscriber {
 
     // Join all non-empty results maintaining index-based chronological order
     let fullText = transcriptParts.filter((p) => p && p.length > 0).join(" ");
-    return this._removeRepetitions(fullText);
+    return {
+      text: this._removeRepetitions(fullText),
+      hasFailures: hasFailures
+    };
   }
 
   /**
