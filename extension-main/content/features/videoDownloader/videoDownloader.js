@@ -362,23 +362,43 @@ class VideoDownloader {
         
         if (cacheResult && cacheResult.success && cacheResult.data && cacheResult.data.cached && cacheResult.data.text) {
             console.log("[Scaler++] Transcript loaded from cache.");
-            const blob = new Blob([cacheResult.data.text], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            const videoTitle = document.title || "";
-            const slugTitle = videoTitle
-              .replace(/[\\/:*?"<>|]/g, "")
-              .replace(/\\s+/g, "_")
-              .substring(0, 80)
-              .replace(/_+$/, "");
-            a.download = slugTitle ? `${slugTitle}.txt` : "Scaler_Lecture.txt";
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            btn.innerHTML = originalIcon;
-            return;
+
+            const wantDownload = confirm("A cached transcript was found. Click OK to download it, or click Cancel to generate your own transcript.");
+            if (wantDownload) {
+                // Track completed download
+                try {
+                  chrome.storage.sync.get(["scaler_user"], (result) => {
+                    const email = result?.scaler_user?.email;
+                    if (email && chrome.runtime?.id) {
+                      chrome.runtime.sendMessage({
+                        action: "trackDownload",
+                        email,
+                        downloadType: "transcript",
+                        lecture: document.title || "",
+                        lectureSlug: cacheKey,
+                      });
+                    }
+                  });
+                } catch (_) {}
+
+                const blob = new Blob([cacheResult.data.text], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                const videoTitle = document.title || "";
+                const slugTitle = videoTitle
+                  .replace(/[\\/:*?"<>|]/g, "")
+                  .replace(/\\s+/g, "_")
+                  .substring(0, 80)
+                  .replace(/_+$/, "");
+                a.download = slugTitle ? `${slugTitle}.txt` : "Scaler_Lecture.txt";
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                btn.innerHTML = originalIcon;
+                return;
+            }
         }
       }
     }

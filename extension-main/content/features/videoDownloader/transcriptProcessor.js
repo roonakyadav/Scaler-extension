@@ -75,6 +75,29 @@ async function saveTranscriptToCache(key, title, text) {
 }
 
 /**
+ * Track completed download to the backend.
+ * Fire-and-forget.
+ */
+function trackCompletedDownload(type) {
+  try {
+    chrome.storage.sync.get(["scaler_user"], (result) => {
+      const email = result?.scaler_user?.email;
+      if (email && chrome.runtime?.id) {
+        chrome.runtime.sendMessage({
+          action: "trackDownload",
+          email,
+          downloadType: type,
+          lecture: videoTitle || "",
+          lectureSlug: cacheKey,
+        });
+      }
+    });
+  } catch (_) {
+    /* fail silently */
+  }
+}
+
+/**
  * Validate that the given API key is accepted by the provider.
  *
  * Strategy: each provider exposes a lightweight, read-only endpoint
@@ -285,6 +308,7 @@ if (cacheBtn) {
       const wordCount = cached.text.split(/\s+/).length;
       log(`📦 ${wordCount} words downloaded from cache.`);
       cacheBtn.textContent = "✅ Downloaded from Cache";
+      trackCompletedDownload("transcript");
     } else {
       log("Cache MISS — no cached transcript found for this lecture.");
       statusText.innerText = "Not in cache. Use your API key to transcribe.";
@@ -620,35 +644,6 @@ startBtn.addEventListener("click", async () => {
     modelInput.disabled = true;
     apiKeyInput.disabled = true;
 
-    // ── STEP 0: Cache Check ──────────────────────────────────────
-    if (cacheKey) {
-      log("Step 0/3: Checking transcript cache...");
-      statusText.innerText = "Step 0/3: Checking cache...";
-      const cached = await checkTranscriptCache(cacheKey);
-      if (cached.cached && cached.text) {
-        log("✅ Cache HIT — serving cached transcript instantly.");
-        statusText.innerText = "🎉 Loaded from Cache!";
-        progressBar.style.width = "100%";
-        progressBar.style.background = "#10b981";
-
-        const blob = new Blob([cached.text], { type: "text/plain" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = getSuggestedName("txt");
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        const wordCount = cached.text.split(/\s+/).length;
-        log(`📦 ${wordCount} words served from cache.`);
-        return; // skip all further steps
-      }
-      log("Cache MISS — no cached transcript found.");
-    }
-    // ───────────────────────────────────────────────────────────
-
     // ── STEP 1: API Key Health Check ────────────────────────────
     log("Step 1/3: Validating API key...");
     statusText.innerText = "Step 1/3: Validating API key...";
@@ -742,18 +737,7 @@ startBtn.addEventListener("click", async () => {
     // ─────────────────────────────────────────────────────────
 
     // Track
-    chrome.storage.sync.get(["scaler_user"], (result) => {
-      const email = result?.scaler_user?.email;
-      if (email && chrome.runtime?.id) {
-        chrome.runtime.sendMessage({
-          action: "trackDownload",
-          email,
-          downloadType: "transcript",
-          lecture: videoTitle || "",
-          lectureSlug: cacheKey,
-        });
-      }
-    });
+    trackCompletedDownload("transcript");
   } catch (err) {
     log(`❌ Error: ${err.message}`);
     console.error(err);
