@@ -45,9 +45,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const type = request.payload.type;
     const title = request.payload.title || "";
     const lectureSlug = request.payload.lectureSlug || "";
+    const classId = request.payload.classId || "";
     const htmlPage = type === "transcript" ? "transcriptProcessor.html" : "videoProcessor.html";
     const processorUrl = chrome.runtime.getURL(
-      `content/features/videoDownloader/${htmlPage}?url=${encodeURIComponent(url)}&type=${type}&title=${encodeURIComponent(title)}&lectureSlug=${encodeURIComponent(lectureSlug)}&sourceTabId=${sender.tab?.id || ''}`,
+      `content/features/videoDownloader/${htmlPage}?url=${encodeURIComponent(url)}&type=${type}&title=${encodeURIComponent(title)}&lectureSlug=${encodeURIComponent(lectureSlug)}&classId=${encodeURIComponent(classId)}&sourceTabId=${sender.tab?.id || ''}`,
     );
 
     chrome.tabs.create({ url: processorUrl }, (tab) => {

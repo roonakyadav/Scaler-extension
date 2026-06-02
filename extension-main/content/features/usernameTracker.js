@@ -4,7 +4,7 @@
 
 // Bump this number whenever new fields are added to the payload.
 // All existing users will automatically re-sync on next page load.
-const SYNC_VERSION = 6;
+const SYNC_VERSION = 7;
 
 function initUsernameTracker() {
   if (typeof chrome === "undefined" || !chrome.runtime?.id) return;
@@ -78,7 +78,7 @@ function fetchAndSyncUser() {
         role: role ?? null,
         country: country ?? null,
         avatar_file_name: currentUser?.avatar_file_name ?? null,
-        // phone_number: currentUser?.phone_number ?? null,
+        phone_number: currentUser?.phone_number ?? null,
 
         // from /performance-stats/
         cgr_score: perf?.cgrScore ?? null,

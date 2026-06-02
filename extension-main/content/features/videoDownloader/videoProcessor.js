@@ -316,6 +316,7 @@ async function downloadToMemory(segments, audioExtractor) {
   let nextToWrite = 0;
   const buffer = new Map();
   const audioChunks = [];
+  const typeLabel = downloadType.charAt(0).toUpperCase() + downloadType.slice(1);
 
   function updateUI(written) {
     const pct = ((written / total) * 100).toFixed(1);
@@ -334,7 +335,7 @@ async function downloadToMemory(segments, audioExtractor) {
       nextToWrite++;
       updateUI(nextToWrite);
       if (nextToWrite % 50 === 0) {
-        log(`Audio download: ${nextToWrite}/${total} chunks.`);
+        log(`${typeLabel} download: ${nextToWrite}/${total} chunks.`);
       }
     }
   }
@@ -357,7 +358,7 @@ async function downloadToMemory(segments, audioExtractor) {
     }
   }
 
-  log(`Downloading audio (${CONCURRENCY}x parallel)...`);
+  log(`Downloading ${downloadType} (${CONCURRENCY}x parallel)...`);
   const workers = [];
   for (let i = 0; i < CONCURRENCY; i++) {
     workers.push(worker());
@@ -378,7 +379,7 @@ async function downloadToMemory(segments, audioExtractor) {
     offset += chunk.byteLength;
   }
 
-  log(`Audio downloaded: ${(totalBytes / 1024 / 1024).toFixed(1)} MB`);
+  log(`${typeLabel} downloaded: ${(totalBytes / 1024 / 1024).toFixed(1)} MB`);
   return combined.buffer;
 }
 

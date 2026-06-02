@@ -252,6 +252,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const m3u8Url = urlParams.get("url");
 const videoTitle = urlParams.get("title") || "";
 const lectureSlug = urlParams.get("lectureSlug") || "";
+const classId = urlParams.get("classId") || "";
 const sourceTabId = parseInt(urlParams.get("sourceTabId"), 10);
 const cacheKey = lectureSlug || videoTitle;
 
@@ -295,7 +296,17 @@ if (cacheBtn) {
       progressBar.style.width = "100%";
       progressBar.style.background = "#10b981";
 
-      const blob = new Blob([cached.text], { type: "text/plain" });
+      let finalTranscript = cached.text;
+      try {
+        if (classId) {
+          const header = await fetchMetadataHeader(classId);
+          finalTranscript = header + finalTranscript;
+        }
+      } catch (e) {
+        console.error("[Scaler++] Error adding metadata to cache download:", e);
+      }
+
+      const blob = new Blob([finalTranscript], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -708,7 +719,18 @@ startBtn.addEventListener("click", async () => {
     }
 
     // Save locally
-    const blob = new Blob([transcript], { type: "text/plain" });
+    // Save locally
+    let finalTranscript = transcript;
+    try {
+      if (classId) {
+        const header = await fetchMetadataHeader(classId);
+        finalTranscript = header + finalTranscript;
+      }
+    } catch (e) {
+      console.error("[Scaler++] Error adding metadata to generated download:", e);
+    }
+
+    const blob = new Blob([finalTranscript], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -752,3 +774,71 @@ startBtn.addEventListener("click", async () => {
     apiKeyInput.disabled = false;
   }
 });
+
+async function fetchMetadataHeader(classId) {
+  if (!classId) return "";
+  
+  let courseName = "N/A";
+  let title = "N/A";
+  let startTime = "N/A";
+  let duration = "N/A";
+
+  try {
+    const [sessionRes, metaRes] = await Promise.allSettled([
+      fetch(`https://www.scaler.com/api/v2/classroom/${classId}/session`, { credentials: "include" }),
+      fetch(`https://www.scaler.com/api/v2/classroom/${classId}/meta`, { credentials: "include" })
+    ]);
+
+    if (sessionRes.status === "fulfilled" && sessionRes.value.ok) {
+      try {
+        const sessionJson = await sessionRes.value.json();
+        const batchLesson = sessionJson?.data?.attributes?.batch_lesson;
+        if (batchLesson) {
+          title = batchLesson.title || "N/A";
+          startTime = batchLesson.start_time || "N/A";
+          duration = batchLesson.duration || "N/A";
+        }
+      } catch (e) {
+        console.error("[Scaler++] Error parsing session metadata:", e);
+      }
+    }
+
+    if (metaRes.status === "fulfilled" && metaRes.value.ok) {
+      try {
+        const metaJson = await metaRes.value.json();
+        courseName = metaJson?.data?.attributes?.academy_module?.name || "N/A";
+      } catch (e) {
+        console.error("[Scaler++] Error parsing meta metadata:", e);
+      }
+    }
+  } catch (err) {
+    console.error("[Scaler++] Error fetching classroom metadata:", err);
+  }
+
+  // Format Start Time
+  let formattedStartTime = startTime;
+  if (startTime && startTime !== "N/A") {
+    try {
+      const date = new Date(startTime);
+      if (!isNaN(date.getTime())) {
+        formattedStartTime = date.toLocaleString();
+      }
+    } catch (e) {}
+  }
+
+  // Format Duration
+  let formattedDuration = duration;
+  if (typeof duration === "number") {
+    formattedDuration = `${duration} minutes`;
+  } else if (duration && duration !== "N/A") {
+    formattedDuration = `${duration} minutes`;
+  }
+
+  return `Course Name: ${courseName}\n` +
+         `Lecture Title: ${title}\n` +
+         `Start Time: ${formattedStartTime}\n` +
+         `Duration: ${formattedDuration}\n` +
+         `Downloaded via: Scaler++ Chrome Extension\n` +
+         `Developer: Ritesh prajapati\n\n` +
+         `==================================================\n\n`;
+}
