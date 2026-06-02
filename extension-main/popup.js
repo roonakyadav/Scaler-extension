@@ -418,4 +418,24 @@ document.addEventListener("DOMContentLoaded", () => {
       item.style.transform = "scale(1)";
     });
   });
+
+  const devRateLink = document.getElementById("dev-rate-link");
+  if (devRateLink) {
+    devRateLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      chrome.tabs.create({
+        url: "https://chromewebstore.google.com/detail/scaler++/fpnleckmeeahiognlpphbadchogfjgcg",
+      });
+    });
+  }
+
+  const devContactLink = document.getElementById("dev-contact-link");
+  if (devContactLink) {
+    devContactLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      chrome.tabs.create({
+        url: "https://riteshjs.vercel.app/",
+      });
+    });
+  }
 });
