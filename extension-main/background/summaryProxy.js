@@ -25,13 +25,14 @@ const SUMMARY_MAX_TRANSCRIPT_CHARS = 120000;
 
 const SUMMARY_SYSTEM_PROMPT = [
   "You are an assistant that summarises a single recorded lecture using its transcript.",
-  "Read the transcript and produce a concise, faithful summary. Do NOT invent facts that are not supported by the transcript.",
-  "Respond with ONLY a JSON object (no markdown, no prose) with exactly these keys, each an array of short plain-text strings:",
-  '  "topics"        — the main topics/concepts taught in the session.',
-  '  "notes"         — important points, explanations or takeaways worth remembering.',
-  '  "deadlines"     — any deadlines, due dates or time-bound tasks mentioned (include the date/timeframe in the text if stated).',
-  '  "announcements" — important announcements, instructions or logistics mentioned by the instructor.',
-  "If a category has nothing, return an empty array for it. Keep each item short and self-contained.",
+  "Read the transcript and produce a faithful summary. Do NOT invent facts that are not supported by the transcript.",
+  "Respond with ONLY a JSON object (no markdown, no prose outside the JSON) with exactly these keys:",
+  '  "brief"         — (array of objects) the lecture told as a sequence of concepts, in the order they were taught. Each object is { "title": "<the concept name, e.g. \'Write-Ahead Log (WAL)\'>", "body": "<a detailed, story-telling explanation of this concept in flowing prose (NOT bullet points): definitions, key components, the reasoning, any algorithms / data structures / methods involved, and how it ties into the larger topic. Relate it to real-world applications or examples when relevant. Use multiple paragraphs separated by a blank line.>" }. Cover every significant concept (typically 4-10) so a student who missed the class can read it like a story and understand everything.',
+  '  "topics"        — (array of strings) the main topics/concepts taught in the session.',
+  '  "notes"         — (array of strings) important points, explanations or takeaways worth remembering.',
+  '  "deadlines"     — (array of strings) any deadlines, due dates or time-bound tasks mentioned (include the date/timeframe in the text if stated).',
+  '  "announcements" — (array of strings) important announcements, instructions or logistics mentioned by the instructor.',
+  'For the array keys, return an empty array if there is nothing, and keep each item short and self-contained. For "brief", return an empty string only if the transcript is unusable.',
 ].join("\n");
 
 /**
@@ -87,8 +88,30 @@ function normaliseSummaryShape(raw) {
       .map((v) => v.trim())
       .filter(Boolean);
   };
+  const normaliseBrief = (val) => {
+    if (!val) return [];
+    if (typeof val === "string") {
+      const t = val.trim();
+      return t ? [{ title: "", body: t }] : [];
+    }
+    if (!Array.isArray(val)) return [];
+    return val
+      .map((c) => {
+        if (typeof c === "string") return { title: "", body: c.trim() };
+        if (c && typeof c === "object") {
+          return {
+            title: String(c.title || "").trim(),
+            body: String(c.body || c.text || "").trim(),
+          };
+        }
+        return null;
+      })
+      .filter((c) => c && (c.title || c.body));
+  };
+
   const obj = raw && typeof raw === "object" ? raw : {};
   return {
+    brief: normaliseBrief(obj.brief),
     topics: toStringArray(obj.topics),
     notes: toStringArray(obj.notes),
     deadlines: toStringArray(obj.deadlines),

@@ -47,7 +47,16 @@ test("renders a cached summary's sections", async () => {
       success: true,
       data: {
         cached: true,
-        summary: { topics: ["Trees 101"], notes: [], deadlines: ["HW due Fri"], announcements: [] },
+        summary: {
+          brief: [
+            { title: "Binary Trees", body: "The lecture opened with binary trees.\n\nIt explained nodes and edges." },
+            { title: "Traversals", body: "It then moved on to traversals and wrapped up with a recap." },
+          ],
+          topics: ["Trees 101"],
+          notes: [],
+          deadlines: ["HW due Fri"],
+          announcements: [],
+        },
         generatedBy: "a@b.com",
         model: "gpt-4o-mini",
       },
@@ -67,6 +76,15 @@ test("renders a cached summary's sections", async () => {
   await tick(50);
 
   const panel = window.document.getElementById("scaler-summary-panel");
+  assert.match(panel.textContent, /Lecture Brief/);
+  assert.match(panel.textContent, /opened with binary trees/);
+  // two concepts, each with a title
+  assert.equal(panel.querySelectorAll(".scaler-notes-concept").length, 2);
+  assert.equal(panel.querySelectorAll(".scaler-notes-ctitle").length, 2);
+  assert.match(panel.textContent, /Binary Trees/);
+  assert.match(panel.textContent, /Traversals/);
+  // first concept body has two paragraphs (split on the blank line)
+  assert.equal(panel.querySelectorAll(".scaler-notes-para").length, 3);
   assert.match(panel.textContent, /Topics Taught/);
   assert.match(panel.textContent, /Trees 101/);
   assert.match(panel.textContent, /HW due Fri/);
@@ -93,7 +111,7 @@ test("shows Generate button when a transcript exists but no summary", async () =
 
   const panel = window.document.getElementById("scaler-summary-panel");
   const buttons = [...panel.querySelectorAll("button")].map((b) => b.textContent);
-  assert.ok(buttons.includes("Generate Summary"), "Generate button should be shown");
+  assert.ok(buttons.includes("✨ Generate Notes"), "Generate button should be shown");
 });
 
 test("asks for a transcript first when neither summary nor transcript is cached", async () => {
@@ -154,7 +172,7 @@ test("Generate flow calls the LLM, renders the result and caches it", async () =
 
   const panel = window.document.getElementById("scaler-summary-panel");
   const genBtn = [...panel.querySelectorAll("button")].find(
-    (b) => b.textContent === "Generate Summary",
+    (b) => b.textContent === "✨ Generate Notes",
   );
   assert.ok(genBtn, "Generate button present");
   genBtn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -177,6 +195,76 @@ test("Generate flow calls the LLM, renders the result and caches it", async () =
   assert.equal(save.classId, "777");
   assert.equal(save.generatedBy, "gen@scaler.com");
   assert.deepEqual(save.summary, generated);
+});
+
+test("adds the Notes tab when the tab-bar renders after init (slow load)", async () => {
+  const chrome = summaryChrome({});
+  const { window } = loadFeature("content/features/lectureSummary.js", {
+    url: SESSION_URL,
+    // Session page, but the navigation tab-bar hasn't rendered yet.
+    html: `<!DOCTYPE html><html><body><div class="me-cr-body"></div></body></html>`,
+    fetch: metaFetch,
+    chrome,
+  });
+
+  window.initLectureSummary();
+  assert.equal(
+    window.document.getElementById("classroom-lecture-summary"),
+    null,
+    "no tab yet — the tab-bar isn't in the DOM",
+  );
+
+  // The tab-bar renders late (slow load).
+  const tabs = window.document.createElement("div");
+  tabs.className = "navigation-tabs";
+  window.document.querySelector(".me-cr-body").appendChild(tabs);
+
+  await tick(20);
+  assert.ok(
+    window.document.getElementById("classroom-lecture-summary"),
+    "Notes tab should be injected once the tab-bar appears",
+  );
+});
+
+test("shows the humorous message when the transcript exceeds the model's context limit", async () => {
+  const chrome = summaryChrome(
+    {
+      checkSummaryCache: { success: true, data: { cached: false } },
+      checkTranscriptCache: { success: true, data: { cached: true, text: "transcript" } },
+      generateSummary: {
+        success: false,
+        error:
+          "HTTP 400: {\"error\":{\"message\":\"This endpoint's maximum context length is 10240 tokens. However, you requested about 14920 tokens. Please reduce the length.\"}}",
+      },
+    },
+    {
+      local: { scaler_summary_config: { baseUrl: "https://api.x/v1", apiKey: "sk-1", model: "m" } },
+      sync: { scaler_user: { email: "gen@scaler.com" } },
+    },
+  );
+
+  const { window } = loadFeature("content/features/lectureSummary.js", {
+    url: SESSION_URL,
+    html: SESSION_HTML,
+    fetch: metaFetch,
+    chrome,
+  });
+
+  window.initLectureSummary();
+  await tick(20);
+  clickTab(window);
+  await tick(50);
+
+  const panel = window.document.getElementById("scaler-summary-panel");
+  const genBtn = [...panel.querySelectorAll("button")].find(
+    (b) => b.textContent === "✨ Generate Notes",
+  );
+  genBtn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await tick(50);
+
+  assert.match(panel.textContent, /Gareeb, Paid API use kar/);
+  // raw error is not dumped to the user for this case
+  assert.doesNotMatch(panel.textContent, /maximum context length/);
 });
 
 test("does not inject the Summary tab on non-session pages", () => {
