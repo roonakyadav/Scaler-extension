@@ -49,6 +49,14 @@ Show session metadata (title, date, instructor/company, rating) directly on clas
 
 Display instructor name, company and role on dashboard class cards and inside a dedicated "Instructor Info" tab on the session page.
 
+## 🧠 AI Lecture Summary
+
+Adds a **"Summary"** tab on the session page that shows an AI-generated summary of the lecture — **Topics taught**, **Notes**, **Deadlines**, and **Announcements** — built from the lecture transcript.
+
+- Summaries are cached on the backend (keyed by the same lecture slug as transcripts) and shared, so each lecture is summarized only once.
+- If no summary exists yet but the transcript is cached, a **Generate** button appears; if there's no transcript, you're prompted to generate the transcript first.
+- Generation uses **your own** OpenAI-compatible API key, model and base URL (entered via the ⚙ icon and stored locally in your browser — never sent to Scaler++ servers). The request runs through the extension's service worker, so the page's CSP doesn't block it.
+
 ## 🎯 Practice Mode
 
 Automatically resets the code editor in assignments if not touched for 5+ hours. Includes a customizable auto-disable timer (1–30 days) and tracks manual resets to prevent accidental spoilers.
@@ -114,6 +122,7 @@ extension-main/
 │   ├── companionBypass.js   ← Smart Companion Bypass logic
 │   ├── leetcodeLink.js      ← LeetCode search & verification
     ├── calendarSync.js      ← Sync classes directly into Google Calendar
+│   ├── summaryProxy.js      ← AI summary cache + LLM proxy (CSP-safe)
 │   └── videoTracker.js      ← M3U8 stream capture & download initiation
 └── content/
     ├── content.js           ← Entry point & message handler
@@ -132,10 +141,28 @@ extension-main/
     │   │   ├── liveStreamRecorder.js ← Main logic & UI injection
     │   │   ├── recorderBridge.js     ← Page context Agora handler
     │   │   └── liveStreamRecorder.css ← Custom player styles
+    │   ├── lectureInfo.js / instructorInfo.js ← Session/dashboard metadata & instructor tab
+    │   ├── lectureSummary.js ← AI lecture summary tab (topics/notes/deadlines/announcements)
     │   ├── problemSearch, practiceMode, leetcodeLink, spotlightSearch,
     │   │   joinClassButton, companionBypass, subjectSort, contestLeaderboard
     └── utils/               ← domUtils, stringUtils
+
+tests/                       ← jsdom + node:test suite for content features (see tests/README.md)
 ```
+
+---
+
+## 🧪 Testing
+
+Unit + integration tests for the content-script features live in [`Scaler++/tests`](tests/) and run on Node's built-in test runner with jsdom (no Jest):
+
+```bash
+cd Scaler++/tests
+npm install      # one-time: installs jsdom
+npm test         # runs the full suite
+```
+
+Coverage includes the string/DOM utilities, join-class time logic, custom-message selection, the Instructor Info tab/dashboard tagging, and the full **AI Lecture Summary** flow (cached render, Generate-button states, and the generate→cache path). A `smoke.test.js` loads the entire manifest content-script bundle in one scope and asserts every feature entrypoint is wired up — so newly added content scripts are covered automatically. See [`tests/README.md`](tests/README.md) for details.
 
 ---
 

@@ -1,0 +1,13 @@
+{
+  "name": "scaler-extension-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Unit + integration tests for the Scaler++ browser-extension content features.",
+  "scripts": {
+    "test": "node --test --test-force-exit",
+    "test:watch": "node --test --watch"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
+  }
+}
