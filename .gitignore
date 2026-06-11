@@ -16,3 +16,5 @@ build/
 config.js
 
 addons/
+
+node_modules/

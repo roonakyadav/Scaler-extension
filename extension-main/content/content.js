@@ -156,6 +156,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const panel = document.getElementById('scaler-instructor-panel'); if (panel) panel.remove();
         document.querySelectorAll('[data-instructor-info-id]').forEach(el => el.removeAttribute('data-instructor-info-id'));
       }
+    } else if (key === "lecture-summary") {
+      if (value) {
+        if (typeof initLectureSummary === "function") initLectureSummary();
+      } else {
+        // teardown lecture-summary: disconnect observer and remove tab/panel
+        try {
+          if (window._summaryTabObserver) {
+            window._summaryTabObserver.disconnect();
+            window._summaryTabObserver = null;
+          }
+        } catch (e) {
+          console.warn("Error tearing down lecture-summary observer", e);
+        }
+        const sTab = document.getElementById('classroom-lecture-summary'); if (sTab) sTab.remove();
+        const sPanel = document.getElementById('scaler-summary-panel'); if (sPanel) sPanel.remove();
+      }
     } else {
       updateVisibilityForKey(key, value);
     }
@@ -194,6 +210,9 @@ window.addEventListener("load", async () => {
     }
     if (currentSettings && currentSettings["instructor-info"] && typeof initInstructorInfo === "function") {
       initInstructorInfo();
+    }
+    if (currentSettings && currentSettings["lecture-summary"] && typeof initLectureSummary === "function") {
+      initLectureSummary();
     }
   }, 1700);
 
@@ -262,6 +281,9 @@ handleUrlChange = function () {
     }
     if (currentSettings && currentSettings["instructor-info"] && typeof initInstructorInfo === "function") {
       initInstructorInfo();
+    }
+    if (currentSettings && currentSettings["lecture-summary"] && typeof initLectureSummary === "function") {
+      initLectureSummary();
     }
   }, 1700);
 

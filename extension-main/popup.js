@@ -41,6 +41,7 @@ const DEFAULT_SETTINGS = {
   "calendar-sync": true,
   "lecture-info": true,
   "instructor-info": true,
+  "lecture-summary": true,
   "mess-fee-filled-timestamp": null,
 
   // Contest
@@ -76,6 +77,7 @@ const TOGGLE_MAP = {
   "toggle-practice-mode": "practice-mode",
   "toggle-lecture-info": "lecture-info",
   "toggle-instructor-info": "instructor-info",
+  "toggle-lecture-summary": "lecture-summary",
   "toggle-join-session": "join-session",
   "toggle-companion-bypass": "companion-bypass",
   "toggle-companion": "companion",

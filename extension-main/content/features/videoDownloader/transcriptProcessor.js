@@ -23,6 +23,7 @@ const CONCURRENCY = 6;
 
 // ── Backend Cache Config ──
 const BACKEND_BASE_URL = "https://scalerbackend.vercel.app";
+// const BACKEND_BASE_URL = "http://localhost:3001";
 const EXTENSION_TOKEN =
   "Ritesh-Prajapati-created-started-this-extension-super-secret-key-12345";
 
@@ -53,9 +54,20 @@ async function checkTranscriptCache(key) {
  * Save a generated transcript to the backend cache.
  * Fire-and-forget — never throws.
  */
-async function saveTranscriptToCache(key, title, text) {
+async function saveTranscriptToCache(key, title, text, classId) {
   if (!key || !text) return;
   try {
+    // Best-effort: tag the save with the generating user's email (metadata).
+    const generatedBy = await new Promise((resolve) => {
+      try {
+        chrome.storage.sync.get(["scaler_user"], (r) =>
+          resolve(r?.scaler_user?.email || ""),
+        );
+      } catch (e) {
+        resolve("");
+      }
+    });
+
     await fetch(`${BACKEND_BASE_URL}/api/transcript/save`, {
       method: "POST",
       headers: {
@@ -66,6 +78,8 @@ async function saveTranscriptToCache(key, title, text) {
         slug: key.trim(),
         title: (title || key).trim(),
         text: text.trim(),
+        classId: classId ? String(classId).trim() : "",
+        generatedBy,
       }),
     });
     console.log("[Scaler++] Transcript saved to cache for key:", key);
@@ -751,7 +765,7 @@ startBtn.addEventListener("click", async () => {
     if (cacheKey) {
       if (!hasFailures) {
         log("Saving transcript to cache for future use...");
-        saveTranscriptToCache(cacheKey, videoTitle, transcript);
+        saveTranscriptToCache(cacheKey, videoTitle, transcript, classId);
       } else {
         log("Skipping cache save: Some chunks failed to transcribe.");
       }

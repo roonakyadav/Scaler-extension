@@ -11,3 +11,4 @@ importScripts("./leetcodeLink.js"); // LeetCode Problem Search & Verification
 importScripts("./videoTracker.js"); // Capture media streams
 importScripts("./calendarSync.js"); // Syncing classes directly into Google Calendar
 importScripts("./messagesProxy.js"); // Proxies CORS requests for custom messages
+importScripts("./summaryProxy.js"); // Lecture summary cache + LLM proxy

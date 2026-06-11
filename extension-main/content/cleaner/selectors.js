@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS = {
   "subject-sort": true,
   "lecture-info": true,
   "instructor-info": true,
+  "lecture-summary": true,
   "mess-fee-filled-timestamp": null,
 
   // Contest
