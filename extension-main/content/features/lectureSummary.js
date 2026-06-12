@@ -738,12 +738,12 @@
   // ── Settings (gear) popover ─────────────────────────────────────────────
   // OpenAI-compatible chat/completions endpoints + a sensible default model.
   const PROVIDER_PRESETS = [
-    { id: "openai",     label: "OpenAI",             baseUrl: "https://api.openai.com/v1",                                model: "gpt-4o-mini" },
-    { id: "gemini",     label: "Google Gemini",      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",  model: "gemini-3.1-flash-lite" },
-    { id: "groq",       label: "Groq",               baseUrl: "https://api.groq.com/openai/v1",                           model: "llama-3.3-70b-versatile" },
-    { id: "openrouter", label: "OpenRouter",         baseUrl: "https://openrouter.ai/api/v1",                             model: "openai/gpt-4o-mini" },
-    { id: "anthropic",  label: "Claude (Anthropic)", baseUrl: "https://api.anthropic.com/v1",                             model: "claude-haiku-4-5-20251001" },
-    { id: "custom",     label: "Custom",             baseUrl: "",                                                         model: "" },
+    { id: "openai",     label: "OpenAI",             baseUrl: "https://api.openai.com/v1",                                model: "gpt-4o-mini",              apiKeyUrl: "https://platform.openai.com/api-keys" },
+    { id: "gemini",     label: "Google Gemini",      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",  model: "gemini-3.1-flash-lite",    apiKeyUrl: "https://aistudio.google.com/apikey" },
+    { id: "groq",       label: "Groq",               baseUrl: "https://api.groq.com/openai/v1",                           model: "llama-3.3-70b-versatile",  apiKeyUrl: "https://console.groq.com/keys" },
+    { id: "openrouter", label: "OpenRouter",         baseUrl: "https://openrouter.ai/api/v1",                             model: "openai/gpt-4o-mini",       apiKeyUrl: "https://openrouter.ai/keys" },
+    { id: "anthropic",  label: "Claude (Anthropic)", baseUrl: "https://api.anthropic.com/v1",                             model: "claude-haiku-4-5-20251001", apiKeyUrl: "https://console.anthropic.com/settings/keys" },
+    { id: "custom",     label: "Custom",             baseUrl: "",                                                         model: "",                         apiKeyUrl: "" },
   ];
 
   // Opens (or closes) the settings popover anchored next to the gear button.
@@ -755,6 +755,13 @@
     }
 
     const config = await _getSummaryConfig();
+    const DEFAULT_PROVIDER = PROVIDER_PRESETS.find((p) => p.id === "openai");
+    if (!config.provider && !config.baseUrl) {
+      config.provider = DEFAULT_PROVIDER.id;
+      config.baseUrl  = DEFAULT_PROVIDER.baseUrl;
+      config.model    = DEFAULT_PROVIDER.model;
+      _saveSummaryConfig(config);
+    }
 
     const box = document.createElement("div");
     box.setAttribute("data-scaler-summary-settings", "true");
@@ -784,9 +791,38 @@
       return { wrap, input };
     };
 
-    const baseUrlField = mkField("Base URL", "baseUrl", "text", "https://api.openai.com/v1");
-    const modelField = mkField("Model", "model", "text", "gpt-4o-mini");
-    const apiKeyField = mkField("API Key", "apiKey", "password", "sk-...");
+    const baseUrlField = mkField("Base URL", "baseUrl", "text", DEFAULT_PROVIDER.baseUrl);
+    const modelField = mkField("Model", "model", "text", DEFAULT_PROVIDER.model);
+    // API Key field with a dynamic "Get API Key" link.
+    const apiKeyWrap = document.createElement("div");
+    const apiKeyLabelRow = document.createElement("div");
+    apiKeyLabelRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;";
+    const apiKeyLabel = document.createElement("label");
+    apiKeyLabel.textContent = "API Key";
+    apiKeyLabel.style.margin = "0";
+    const apiKeyLink = document.createElement("a");
+    const currentPreset = PROVIDER_PRESETS.find((p) => p.id === (config.provider || DEFAULT_PROVIDER.id));
+    apiKeyLink.href = currentPreset?.apiKeyUrl || "";
+    apiKeyLink.target = "_blank";
+    apiKeyLink.rel = "noopener noreferrer";
+    apiKeyLink.textContent = "Get API Key ↗";
+    apiKeyLink.style.cssText = "font-size:11px;font-weight:600;color:#6366f1;text-decoration:none;cursor:pointer;";
+    apiKeyLink.addEventListener("mouseenter", () => { apiKeyLink.style.textDecoration = "underline"; });
+    apiKeyLink.addEventListener("mouseleave", () => { apiKeyLink.style.textDecoration = "none"; });
+    if (!currentPreset?.apiKeyUrl) apiKeyLink.style.display = "none";
+    apiKeyLabelRow.appendChild(apiKeyLabel);
+    apiKeyLabelRow.appendChild(apiKeyLink);
+    const apiKeyInput = document.createElement("input");
+    apiKeyInput.type = "password";
+    apiKeyInput.value = config.apiKey || "";
+    apiKeyInput.placeholder = "sk-...";
+    apiKeyInput.addEventListener("input", () => {
+      config.apiKey = apiKeyInput.value.trim();
+      _saveSummaryConfig(config);
+    });
+    apiKeyWrap.appendChild(apiKeyLabelRow);
+    apiKeyWrap.appendChild(apiKeyInput);
+    const apiKeyField = { wrap: apiKeyWrap, input: apiKeyInput };
 
     // Provider preset dropdown → autofills Base URL + Model on selection.
     const provWrap = document.createElement("div");
@@ -802,7 +838,7 @@
     const matched = PROVIDER_PRESETS.find(
       (p) => p.id !== "custom" && p.baseUrl === (config.baseUrl || "").trim(),
     );
-    select.value = config.provider || (matched ? matched.id : "custom");
+    select.value = config.provider || (matched ? matched.id : DEFAULT_PROVIDER.id);
     select.addEventListener("change", () => {
       const preset = PROVIDER_PRESETS.find((p) => p.id === select.value);
       config.provider = select.value;
@@ -812,6 +848,14 @@
         config.baseUrl = preset.baseUrl;
         config.model = preset.model;
         apiKeyField.input.focus();
+      }
+      // Update "Get API Key" link for the selected provider.
+      const selectedPreset = PROVIDER_PRESETS.find((p) => p.id === select.value);
+      if (selectedPreset?.apiKeyUrl) {
+        apiKeyLink.href = selectedPreset.apiKeyUrl;
+        apiKeyLink.style.display = "";
+      } else {
+        apiKeyLink.style.display = "none";
       }
       _saveSummaryConfig(config);
     });
@@ -887,10 +931,10 @@
       const root = panel.querySelector(".scaler-notes-root");
       const err = gResp?.error || "unknown error";
       if (_isTooLargeError(err)) {
-        _renderMessageInline(root, "Gareeb, Paid tier use kar le 🥲");
+        _renderMessageInline(root, "Bhai, Paid model use kar le 🥲");
         _renderDetail(
           root,
-          "This lecture's transcript is larger than your model's context limit. Try a model with a bigger context window (usually a paid tier).",
+          "This lecture's transcript is larger than your model's context limit. Try a model with a bigger context window (usually a paid model). Recommended : Gemini",
         );
       } else {
         _renderMessageInline(root, `❌ Generation failed: ${err}`);
