@@ -87,10 +87,21 @@ class CustomAudioTranscriber {
             }
             break; // Success! Break retry loop.
           } catch (err) {
+            const is429 = /\b429\b/.test(err.message);
             this.log(`❌ Chunk ${i + 1} attempt ${retry + 1} failed: ${err.message}`);
             if (retry < MAX_RETRIES - 1) {
-              const backoffTime = 2000 * (retry + 1);
-              this.log(`Waiting ${backoffTime / 1000}s before retry...`);
+              // 429 rate-limit: wait 60s on first retry, 240s (4 min) on second
+              const backoffTime = is429
+                ? (retry === 0 ? 60_000 : 240_000)
+                : 2000 * (retry + 1);
+              const waitLabel = backoffTime >= 60_000
+                ? `${(backoffTime / 60_000).toFixed(0)} min`
+                : `${backoffTime / 1000}s`;
+              this.log(
+                is429
+                  ? `⏳ Rate limited (429) — waiting ${waitLabel} before retry...`
+                  : `Waiting ${waitLabel} before retry...`
+              );
               await new Promise((resolve) => setTimeout(resolve, backoffTime));
             }
           }

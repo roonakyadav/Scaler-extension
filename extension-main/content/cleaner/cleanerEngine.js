@@ -187,9 +187,24 @@ function appendCurriculumIcon(container) {
   anchor.className = "tappable";
   anchor.style.display = "inline-flex";
   anchor.style.alignItems = "center";
-  anchor.style.marginLeft = "10px";
+  anchor.style.marginLeft = "6px";
+  anchor.style.padding = "2px";
+  anchor.style.borderRadius = "50px";
+  anchor.style.border = "1px solid #e2e8f0";
+  anchor.style.background = "#ffffff";
+  anchor.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)";
+  anchor.style.transition = "box-shadow 0.2s, border-color 0.2s";
   anchor.title = "Core Curriculum";
   anchor.setAttribute(CLEANER_ATTR, "core-curriculum");
+
+  anchor.addEventListener("mouseenter", () => {
+    anchor.style.boxShadow = "0 2px 10px rgba(0,0,0,0.10)";
+    anchor.style.borderColor = "#cbd5e1";
+  });
+  anchor.addEventListener("mouseleave", () => {
+    anchor.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)";
+    anchor.style.borderColor = "#e2e8f0";
+  });
 
   // Apply visibility based on settings
   if (!shouldHide("core-curriculum")) {
@@ -214,35 +229,40 @@ function appendSpotlightButton(container) {
   btn.title = "Spotlight Search (Alt + /)";
   btn.setAttribute("aria-label", "Open Spotlight Search");
   btn.innerHTML = `
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" stroke-width="2.2"
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+         stroke="#94a3b8" stroke-width="2.2"
          stroke-linecap="round" stroke-linejoin="round">
       <circle cx="11" cy="11" r="8"/>
       <line x1="21" y1="21" x2="16.65" y2="16.65"/>
     </svg>
+    <span style="color:#94a3b8;font-size:14px;font-weight:400;letter-spacing:0.1px;pointer-events:none;">Search anything</span>
   `;
 
-  // Inline styles — mirrors Scaler's own header button aesthetics
+  // Wide search-bar style matching the reference image
   Object.assign(btn.style, {
     display: "inline-flex",
     alignItems: "center",
-    padding: "4px 10px",
-    border: "2px solid rgba(255,255,255,0.18)",
-    borderRadius: "8px",
-    background: "rgba(255, 255, 255, 1)",
-    fontSize: "20px",
-    fontWeight: "500",
+    gap: "10px",
+    padding: "10px 20px",
+    minWidth: "168px",
+    border: "1px solid #e2e8f0",
+    borderRadius: "50px",
+    background: "#ffffff",
+    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
     cursor: "pointer",
     lineHeight: "1",
-    transition: "background 0.15s, color 0.15s",
+    transition: "box-shadow 0.2s, border-color 0.2s",
     verticalAlign: "middle",
+    boxSizing: "border-box",
   });
 
   btn.addEventListener("mouseenter", () => {
-    btn.style.background = "rgba(255,255,255,0.16)";
+    btn.style.boxShadow = "0 2px 10px rgba(0,0,0,0.10)";
+    btn.style.borderColor = "#cbd5e1";
   });
   btn.addEventListener("mouseleave", () => {
-    btn.style.background = "rgba(255, 255, 255, 1)";
+    btn.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)";
+    btn.style.borderColor = "#e2e8f0";
   });
 
   btn.addEventListener("click", (e) => {

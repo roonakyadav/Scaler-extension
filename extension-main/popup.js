@@ -36,7 +36,7 @@ const DEFAULT_SETTINGS = {
   "join-session": true,
   "companion-bypass": true,
   "subject-sort": true,
-  "live-stream-recorder": true,
+  "live-stream-recorder": false,
   "video-downloader": true,
   "calendar-sync": true,
   "lecture-info": true,
