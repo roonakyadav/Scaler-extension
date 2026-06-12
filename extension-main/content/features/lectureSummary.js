@@ -263,7 +263,15 @@
       heading.textContent = "Notes";
       tab.appendChild(heading);
 
-      navigationTabs.appendChild(tab);
+      // Keep Notes ahead of the Instructor Info tab. If the instructor tab
+      // already exists, slot in before it; otherwise append (the instructor
+      // tab, if added later, appends after us → Notes still comes first).
+      const instructorTab = document.getElementById("classroom-instructor-info");
+      if (instructorTab && instructorTab.parentElement === navigationTabs) {
+        navigationTabs.insertBefore(tab, instructorTab);
+      } else {
+        navigationTabs.appendChild(tab);
+      }
     }
 
     if (!tab.dataset.scalerSummaryHandler) {
@@ -288,7 +296,9 @@
     const style = document.createElement("style");
     style.id = NOTES_STYLE_ID;
     style.textContent = `
-      .scaler-notes-root{max-width:820px;margin:0 auto;padding:30px 14px 48px;color:#1e293b;font-family:inherit;}
+      #scaler-summary-panel{padding:0;margin:0;}
+      #scaler-summary-panel .section-content{padding:0;margin:0;}
+      .scaler-notes-root{max-width:820px;margin:0 auto;padding:14px 14px 48px;color:#1e293b;font-family:inherit;}
       .scaler-notes-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
       .scaler-notes-title{font-size:26px;font-weight:800;letter-spacing:-.02em;color:#0f172a;display:flex;align-items:center;gap:10px;}
       .scaler-notes-chip{font-size:11px;font-weight:700;color:#4f46e5;background:#eef2ff;border-radius:999px;padding:3px 9px;letter-spacing:.02em;}
@@ -302,6 +312,12 @@
       .scaler-notes-popover input,.scaler-notes-popover select{padding:8px 10px;border:1px solid #cbd5e1;border-radius:7px;font-size:13px;width:100%;box-sizing:border-box;background:#fff;color:#0f172a;}
       .scaler-notes-poptitle{font-weight:700;font-size:13px;color:#0f172a;}
       .scaler-notes-popnote{font-size:11px;color:#94a3b8;line-height:1.5;}
+      .scaler-notes-dlwrap{position:relative;display:inline-flex;}
+      .scaler-notes-dl{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#f1f5f9;border:1px solid #e2e8f0;color:#475569;cursor:pointer;border-radius:9px;transition:background .15s,border-color .15s;}
+      .scaler-notes-dl:hover{background:#e2e8f0;border-color:#cbd5e1;}
+      .scaler-notes-menu{position:absolute;top:calc(100% + 8px);left:0;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 12px 32px rgba(15,23,42,.16);padding:6px;display:grid;gap:2px;z-index:50;min-width:180px;}
+      .scaler-notes-menu button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:none;cursor:pointer;font-size:13px;font-weight:500;color:#334155;padding:9px 10px;border-radius:7px;}
+      .scaler-notes-menu button:hover{background:#f1f5f9;}
       .scaler-notes-section{margin-top:30px;}
       .scaler-notes-shead{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
       .scaler-notes-badge{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none;}
@@ -323,7 +339,10 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
-  function _panelContentRoot(panel) {
+  // opts.showGear (default true) controls the "AI Settings" button — we hide it
+  // once notes already exist, since there's nothing left to configure/generate.
+  function _panelContentRoot(panel, opts) {
+    const showGear = !(opts && opts.showGear === false);
     _ensureNotesStyles();
     const sectionContent = panel.querySelector(".section-content");
     sectionContent.innerHTML = "";
@@ -339,28 +358,26 @@
     const title = document.createElement("div");
     title.className = "scaler-notes-title";
     title.innerHTML = `📒 Lecture Notes <span class="scaler-notes-chip">Scaler++</span>`;
-    const sub = document.createElement("div");
-    sub.className = "scaler-notes-sub";
-    sub.textContent = "AI-generated from this lecture's transcript";
     titleWrap.appendChild(title);
-    titleWrap.appendChild(sub);
-
-    const gearWrap = document.createElement("div");
-    gearWrap.className = "scaler-notes-gearwrap";
-
-    const gear = document.createElement("button");
-    gear.type = "button";
-    gear.title = "AI settings";
-    gear.className = "scaler-notes-gear";
-    gear.innerHTML = `${_GEAR_SVG}<span>AI Settings</span>`;
-    gear.addEventListener("click", (e) => {
-      e.stopPropagation();
-      _toggleSettings(gearWrap);
-    });
-    gearWrap.appendChild(gear);
-
     head.appendChild(titleWrap);
-    head.appendChild(gearWrap);
+
+    if (showGear) {
+      const gearWrap = document.createElement("div");
+      gearWrap.className = "scaler-notes-gearwrap";
+
+      const gear = document.createElement("button");
+      gear.type = "button";
+      gear.title = "AI settings";
+      gear.className = "scaler-notes-gear";
+      gear.innerHTML = `${_GEAR_SVG}<span>AI Settings</span>`;
+      gear.addEventListener("click", (e) => {
+        e.stopPropagation();
+        _toggleSettings(gearWrap);
+      });
+      gearWrap.appendChild(gear);
+      head.appendChild(gearWrap);
+    }
+
     root.appendChild(head);
 
     return root;
@@ -501,8 +518,152 @@
   const NOTES_ORDER = ["announcements", "deadlines", "topics", "brief", "notes"];
   const BULLET_KEYS = ["announcements", "deadlines", "topics", "notes"];
 
-  function _renderSummary(panel, summary, meta) {
-    const root = _panelContentRoot(panel);
+  // ── Download (Transcript / Notes-as-Markdown) ───────────────────────────
+  const _DOWNLOAD_SVG =
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
+
+  function _safeFileName(s) {
+    return (
+      String(s || "lecture")
+        .replace(/[^a-z0-9\-_ ]+/gi, "")
+        .trim()
+        .replace(/\s+/g, "-")
+        .slice(0, 80) || "lecture"
+    );
+  }
+
+  // The specific class/lecture name shown in the session header
+  // (e.g. "Model Context Protocol (MCP) & Agent Communication"), preferred over
+  // the course/module name from the meta API for naming downloads.
+  function _lectureName(lecture) {
+    const el = document.querySelector(
+      ".me-cr-header-dropdown-title__label .bold",
+    );
+    const domName = el ? el.textContent.trim() : "";
+    return domName || (lecture && lecture.title) || "Lecture";
+  }
+
+  function _downloadFile(filename, content, mime) {
+    try {
+      const blob = new Blob([content], { type: mime || "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.warn("[Scaler++] Download failed:", e.message);
+    }
+  }
+
+  // Compile the structured summary into a single Markdown document.
+  function _buildNotesMarkdown(summary, meta, lecture) {
+    const lines = [];
+    lines.push(`# Lecture Notes — ${_lectureName(lecture)}`, "");
+
+    const brief = _normaliseBrief(summary.brief);
+    if (brief.length) {
+      lines.push("## 📖 Lecture Brief", "");
+      brief.forEach((c) => {
+        if (c.title) lines.push(`### ${c.title}`, "");
+        if (c.body) lines.push(c.body, "");
+      });
+    }
+
+    const sec = (key, heading) => {
+      const items = summary[key];
+      if (items && items.length) {
+        lines.push(`## ${heading}`, "");
+        items.forEach((i) => lines.push(`- ${i}`));
+        lines.push("");
+      }
+    };
+    sec("announcements", "📢 Announcements");
+    sec("deadlines", "⏰ Deadlines");
+    sec("topics", "📚 Topics Taught");
+    sec("notes", "📝 Key Takeaways");
+
+    if (meta && (meta.generatedBy || meta.model)) {
+      lines.push("---", "");
+      const bits = [];
+      if (meta.generatedBy) bits.push(`Generated by ${meta.generatedBy}`);
+      if (meta.model) bits.push(`Model: ${meta.model}`);
+      lines.push(`_${bits.join("  ·  ")}_`);
+    }
+    return lines.join("\n");
+  }
+
+  async function _downloadTranscript(lecture) {
+    if (!lecture || !lecture.slug) return;
+    let text = _transcriptTextCache.get(lecture.slug);
+    if (!text) {
+      const r = await _sendMessage({ action: "checkTranscriptCache", slug: lecture.slug });
+      if (r?.success && r.data?.cached && r.data.text) {
+        text = r.data.text;
+        _transcriptTextCache.set(lecture.slug, text);
+      }
+    }
+    if (!text) {
+      console.warn("[Scaler++] No transcript available to download.");
+      return;
+    }
+    _downloadFile(`${_safeFileName(_lectureName(lecture))}-transcript.txt`, text, "text/plain;charset=utf-8");
+  }
+
+  // A download icon button that opens a small menu: Transcript / Notes.
+  function _buildDownloadControl(summary, meta, lecture) {
+    const wrap = document.createElement("div");
+    wrap.className = "scaler-notes-dlwrap";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "scaler-notes-dl";
+    btn.title = "Download";
+    btn.innerHTML = _DOWNLOAD_SVG;
+
+    const menu = document.createElement("div");
+    menu.className = "scaler-notes-menu";
+    menu.style.display = "none";
+
+    const mkItem = (label, onClick) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = label;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        menu.style.display = "none";
+        onClick();
+      });
+      return b;
+    };
+
+    menu.appendChild(mkItem("⬇️  Transcript (.txt)", () => _downloadTranscript(lecture)));
+    menu.appendChild(
+      mkItem("⬇️  Notes (.md)", () =>
+        _downloadFile(
+          `${_safeFileName(_lectureName(lecture))}-notes.md`,
+          _buildNotesMarkdown(summary, meta, lecture),
+          "text/markdown;charset=utf-8",
+        ),
+      ),
+    );
+
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      menu.style.display = menu.style.display === "none" ? "grid" : "none";
+    });
+
+    wrap.appendChild(btn);
+    wrap.appendChild(menu);
+    return wrap;
+  }
+
+  function _renderSummary(panel, summary, meta, lecture) {
+    // Notes already exist → nothing to configure, so hide the AI Settings button.
+    const root = _panelContentRoot(panel, { showGear: false });
 
     const hasBrief = _normaliseBrief(summary?.brief).length > 0;
     const isEmpty =
@@ -511,6 +672,10 @@
       _subText(root, "These notes came back empty — try regenerating.");
       return;
     }
+
+    // Download button, right after the "Lecture Notes" title.
+    const titleEl = root.querySelector(".scaler-notes-title");
+    if (titleEl) titleEl.appendChild(_buildDownloadControl(summary, meta, lecture));
 
     NOTES_ORDER.forEach((key) => {
       if (key === "brief") _renderBrief(root, summary.brief);
@@ -550,6 +715,19 @@
       root,
       "No transcript is cached for this lecture yet. Generate the transcript first (via the recording download tool), then come back to create your notes.",
     );
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "🎙️ Generate Transcript";
+    btn.style.cssText =
+      "margin-top:18px;padding:11px 20px;border:none;border-radius:10px;background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(2,132,199,.25);";
+    btn.addEventListener("click", () => {
+      // Open the recording/session flow where the download+transcript tool lives.
+      const url = new URL(location.href);
+      url.searchParams.set("joinSession", "1");
+      location.href = url.toString();
+    });
+    root.appendChild(btn);
   }
 
   function _renderMessage(panel, message) {
@@ -709,7 +887,7 @@
       const root = panel.querySelector(".scaler-notes-root");
       const err = gResp?.error || "unknown error";
       if (_isTooLargeError(err)) {
-        _renderMessageInline(root, "Gareeb, Paid API use kar 🥲");
+        _renderMessageInline(root, "Gareeb, Paid tier use kar le 🥲");
         _renderDetail(
           root,
           "This lecture's transcript is larger than your model's context limit. Try a model with a bigger context window (usually a paid tier).",
@@ -724,10 +902,12 @@
     const email = await _getUserEmail();
 
     // 3. Render + cache (first-write-wins on the backend).
-    _renderSummary(panel, summary, {
-      generatedBy: email,
-      model: config.model || "",
-    });
+    _renderSummary(
+      panel,
+      summary,
+      { generatedBy: email, model: config.model || "" },
+      lecture,
+    );
 
     _sendMessage({
       action: "saveSummary",
@@ -785,10 +965,12 @@
       slug: lecture.slug,
     });
     if (sResp?.success && sResp.data?.cached && sResp.data.summary) {
-      _renderSummary(panel, sResp.data.summary, {
-        generatedBy: sResp.data.generatedBy,
-        model: sResp.data.model,
-      });
+      _renderSummary(
+        panel,
+        sResp.data.summary,
+        { generatedBy: sResp.data.generatedBy, model: sResp.data.model },
+        lecture,
+      );
       return;
     }
 

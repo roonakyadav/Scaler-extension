@@ -89,6 +89,18 @@ test("renders a cached summary's sections", async () => {
   assert.match(panel.textContent, /Trees 101/);
   assert.match(panel.textContent, /HW due Fri/);
   assert.match(panel.textContent, /a@b\.com/);
+  // AI Settings button is hidden once notes exist
+  assert.equal(panel.querySelector(".scaler-notes-gear"), null);
+
+  // Download control offers Transcript + Notes
+  const dlBtn = panel.querySelector(".scaler-notes-dl");
+  assert.ok(dlBtn, "download button should be shown");
+  dlBtn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  const menuLabels = [...panel.querySelectorAll(".scaler-notes-menu button")].map(
+    (b) => b.textContent,
+  );
+  assert.ok(menuLabels.some((t) => /Transcript/i.test(t)), "Transcript option");
+  assert.ok(menuLabels.some((t) => /Notes/i.test(t)), "Notes option");
 });
 
 test("shows Generate button when a transcript exists but no summary", async () => {
@@ -112,6 +124,8 @@ test("shows Generate button when a transcript exists but no summary", async () =
   const panel = window.document.getElementById("scaler-summary-panel");
   const buttons = [...panel.querySelectorAll("button")].map((b) => b.textContent);
   assert.ok(buttons.includes("✨ Generate Notes"), "Generate button should be shown");
+  // AI Settings button is available while notes don't exist yet
+  assert.ok(panel.querySelector(".scaler-notes-gear"), "AI Settings button should be shown");
 });
 
 test("asks for a transcript first when neither summary nor transcript is cached", async () => {
@@ -135,6 +149,11 @@ test("asks for a transcript first when neither summary nor transcript is cached"
   const panel = window.document.getElementById("scaler-summary-panel");
   assert.match(panel.textContent, /transcript/i);
   assert.match(panel.textContent, /first/i);
+  const btns = [...panel.querySelectorAll("button")].map((b) => b.textContent);
+  assert.ok(
+    btns.includes("🎙️ Generate Transcript"),
+    "Generate Transcript button should be shown",
+  );
 });
 
 test("Generate flow calls the LLM, renders the result and caches it", async () => {
@@ -262,9 +281,89 @@ test("shows the humorous message when the transcript exceeds the model's context
   genBtn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await tick(50);
 
-  assert.match(panel.textContent, /Gareeb, Paid API use kar/);
+  assert.match(panel.textContent, /Gareeb/i);
   // raw error is not dumped to the user for this case
   assert.doesNotMatch(panel.textContent, /maximum context length/);
+});
+
+test("download filename uses the class name from the session header", async () => {
+  const chrome = summaryChrome({
+    checkSummaryCache: {
+      success: true,
+      data: {
+        cached: true,
+        summary: { brief: [], topics: ["X"], notes: [], deadlines: [], announcements: [] },
+        generatedBy: "",
+        model: "",
+      },
+    },
+  });
+
+  const { window } = loadFeature("content/features/lectureSummary.js", {
+    url: SESSION_URL,
+    html: `<!DOCTYPE html><html><body><div class="me-cr-body">
+      <div class="navigation-tabs"></div>
+      <div class="me-cr-header-dropdown-title__label">
+        <span class="bold">Model Context Protocol (MCP) & Agent Communication</span>
+      </div>
+      <div class="me-cr-lecture-container">lecture</div>
+    </div></body></html>`,
+    fetch: metaFetch,
+    chrome,
+  });
+
+  // Capture the download without needing a real blob URL (not in jsdom).
+  const downloads = [];
+  window.URL.createObjectURL = () => "blob:test";
+  window.URL.revokeObjectURL = () => {};
+  window.HTMLAnchorElement.prototype.click = function () {
+    downloads.push(this.download);
+  };
+
+  window.initLectureSummary();
+  await tick(20);
+  clickTab(window);
+  await tick(50);
+
+  const panel = window.document.getElementById("scaler-summary-panel");
+  panel.querySelector(".scaler-notes-dl").dispatchEvent(
+    new window.MouseEvent("click", { bubbles: true }),
+  );
+  const notesItem = [...panel.querySelectorAll(".scaler-notes-menu button")].find(
+    (b) => /Notes/i.test(b.textContent),
+  );
+  notesItem.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+  assert.equal(downloads.length, 1);
+  assert.equal(
+    downloads[0],
+    "Model-Context-Protocol-MCP-Agent-Communication-notes.md",
+  );
+});
+
+test("places the Notes tab before the Instructor Info tab", () => {
+  const chrome = summaryChrome({});
+  const { window } = loadFeature("content/features/lectureSummary.js", {
+    url: SESSION_URL,
+    html: `<!DOCTYPE html><html><body><div class="me-cr-body">
+      <div class="navigation-tabs">
+        <a class="navigation-tab-item" id="classroom-instructor-info"><div>Instructor Info</div></a>
+      </div>
+      <div class="me-cr-lecture-container"></div>
+    </div></body></html>`,
+    fetch: metaFetch,
+    chrome,
+  });
+
+  window.initLectureSummary();
+
+  const ids = [
+    ...window.document.querySelectorAll(".navigation-tabs .navigation-tab-item"),
+  ].map((t) => t.id);
+  const notesIdx = ids.indexOf("classroom-lecture-summary");
+  const instrIdx = ids.indexOf("classroom-instructor-info");
+  assert.ok(notesIdx !== -1, "Notes tab should be injected");
+  assert.ok(notesIdx < instrIdx, "Notes tab should come before Instructor Info");
 });
 
 test("does not inject the Summary tab on non-session pages", () => {

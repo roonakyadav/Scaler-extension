@@ -8,15 +8,19 @@ Bypass companion-mode on campus WiFi, download lecture recordings as audio/video
 
 ## 🚀 ENHANCEMENTS
 
+## 🧠 AI Lecture Summary
+
+Adds a **"Summary"** tab on the session page that shows an AI-generated summary of the lecture — **Topics taught**, **Notes**, **Deadlines**, and **Announcements** — built from the lecture transcript.
+
+## ⬇️ Lecture Downloader & 📝 AI Transcription
+
+Download recorded lectures directly from the Scaler recordings page as **audio**, **video**, or **transcript** (using your own custom API key for providers like Deepgram, Groq, OpenAI, or ElevenLabs).
+
 ## 🛡️ Smart Companion Bypass
 
 Bypass Scaler's companion-mode when joining with SST's campus wifi.
 
 Credits - [PHATWalrus](https://github.com/PHATWalrus)
-
-## ⬇️ Lecture Downloader & 📝 AI Transcription
-
-Download recorded lectures directly from the Scaler recordings page as **audio**, **video**, or **transcript** (using your own custom API key for providers like Deepgram, Groq, OpenAI, or ElevenLabs).
 
 ## 🔴 Live Stream Recorder & ⏪ DVR
 
@@ -48,14 +52,6 @@ Show session metadata (title, date, instructor/company, rating) directly on clas
 ## 🧑‍🏫 Instructor Info
 
 Display instructor name, company and role on dashboard class cards and inside a dedicated "Instructor Info" tab on the session page.
-
-## 🧠 AI Lecture Summary
-
-Adds a **"Summary"** tab on the session page that shows an AI-generated summary of the lecture — **Topics taught**, **Notes**, **Deadlines**, and **Announcements** — built from the lecture transcript.
-
-- Summaries are cached on the backend (keyed by the same lecture slug as transcripts) and shared, so each lecture is summarized only once.
-- If no summary exists yet but the transcript is cached, a **Generate** button appears; if there's no transcript, you're prompted to generate the transcript first.
-- Generation uses **your own** OpenAI-compatible API key, model and base URL (entered via the ⚙ icon and stored locally in your browser — never sent to Scaler++ servers). The request runs through the extension's service worker, so the page's CSP doesn't block it.
 
 ## 🎯 Practice Mode
 

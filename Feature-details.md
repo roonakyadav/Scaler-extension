@@ -2,6 +2,11 @@
 
 This document provides a technical overview of how each major feature is implemented within the Scaler++ extension. Features that solely rely on CSS/DOM element hiding are excluded.
 
+## 🧠 AI Lecture Notes
+
+**Description:** Generates structured, readable notes from a lecture's transcript — a story-style "Lecture Brief" (concept by concept), plus Topics Taught, Key Takeaways, and the headline value: the **Deadlines** and **Announcements** the instructor mentioned during class. Shown in a dedicated "Notes" tab on the session page.
+**Implementation:** A `MutationObserver` (with a bounded retry poll for slow loads) injects a "Notes" tab into the classroom navigation bar on session pages. The lecture is identified by resolving its unique slug from Scaler's classroom meta API (`https://www.scaler.com/api/v2/classroom/{classId}/meta`) — the same key the transcript cache uses, so a lecture's transcript and notes share one identifier. Opening the tab queries the extension backend (`GET /api/summary?slug=`) for a cached summary; if none exists it checks whether a transcript is cached, and if so reveals a "Generate" button. Generation sends the transcript plus a structured-output system prompt to a **user-configured, OpenAI-compatible** chat-completions endpoint (OpenAI, Google Gemini, Groq, OpenRouter, Anthropic/Claude, or a custom URL) using the user's own API key. The request is proxied through the background service worker so the page's Content-Security-Policy cannot block it, and the API key lives only in `chrome.storage.local` — it is never sent to the extension backend. The returned JSON (brief + topics/notes/deadlines/announcements) is rendered and then cached on the backend (a MongoDB document indexed in Supabase) keyed by the lecture slug, with the numeric class id, model name, and generating user's email stored as metadata. Caching is first-write-wins, so each lecture is generated only once and reused by everyone.
+
 ## ⬇️ Lecture Downloader & 📝 AI Transcription
 
 **Description:** Allows downloading recorded lectures as audio, video, or fetching an AI transcript.
