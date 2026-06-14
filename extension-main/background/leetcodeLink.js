@@ -1,23 +1,40 @@
 // ============================================================
 // background/leetcodeLink.js — LeetCode Problem Search
 // ─────────────────────────────────────────────────────────────
-// Loaded by background.js via importScripts().
-// Handles the "searchLeetCodeProblem" message from content
-// scripts by querying the LeetCode GraphQL API first, then
-// falling back to a Google Search + verification step.
+// Loaded by background.js via importScripts() AFTER
+// content/utils/stringUtils.js, which provides the shared matching
+// helpers (titleMatchScore, statementSimilarity, computeMatchConfidence,
+// normalizeTight, tokenize, isTitleSimilar).
+//
+// Handles the "searchLeetCodeProblem" message from content scripts:
+//   1. Query the LeetCode GraphQL search for candidate problems.
+//   2. For the strongest title candidates, fetch the problem `content`
+//      and score the match on BOTH title AND problem statement.
+//   3. Fall back to a Google site-search, scoring every candidate slug
+//      (not just the first) the same way.
+//   4. Only return a result when confidence clears ACCEPT_THRESHOLD,
+//      so non-DSA questions and custom Scaler variations are dropped.
 // ============================================================
 
 const LEETCODE_GRAPHQL_URL = "https://leetcode.com/graphql";
+
+// Minimum combined (title + statement) confidence required before we surface a
+// LeetCode link. Tuned to favour precision — better no icon than a wrong icon.
+const ACCEPT_THRESHOLD = 0.6;
+
+// How many GraphQL search candidates to consider / fetch content for.
+const MAX_CANDIDATES = 5;
+const MAX_CONTENT_FETCHES = 3;
 
 // ─── Message Listener ────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "searchLeetCodeProblem") {
-    handleSearch(request.title)
+    handleSearch(request.title, request.statement)
       .then((result) => sendResponse(result))
       .catch((error) => {
         console.error("[Scaler++ LeetCode] Search error:", error);
-        sendResponse({ error: error.message });
+        sendResponse({ found: false, error: error.message });
       });
     return true; // keep message channel open for async response
   }
@@ -26,27 +43,92 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // ─── Orchestration ───────────────────────────────────────────
 
 /**
- * Try GraphQL first (exact match), fall back to Google Search.
- * @param {string} title - Raw problem title from Scaler page
+ * @param {string} title     - Raw problem title from the Scaler page
+ * @param {string} [statement] - Problem statement text from the Scaler page
  */
-async function handleSearch(title) {
-  const cleanTitle = title.trim();
+async function handleSearch(title, statement) {
+  const cleanTitle = (title || "").trim();
+  if (!cleanTitle) return { found: false };
 
-  // 1. LeetCode GraphQL — fast, exact/high-confidence
+  // 1. LeetCode GraphQL search — primary, highest-signal source.
   try {
-    const gqlResult = await checkLeetCodeGraphQL(cleanTitle);
-    if (gqlResult.found) return gqlResult;
+    const gql = await searchViaGraphQL(cleanTitle, statement);
+    if (gql.found) return gql;
   } catch (e) {
-    // Silent — fall through to Google
+    // fall through to Google
   }
 
-  // 2. Google Search — semantic fallback
-  return await checkGoogleSearch(cleanTitle);
+  // 2. Google site-search fallback.
+  try {
+    return await searchViaGoogle(cleanTitle, statement);
+  } catch (e) {
+    return { found: false };
+  }
 }
 
-// ─── LeetCode GraphQL ─────────────────────────────────────────
+/**
+ * Pick the highest-confidence candidate (slug list) by fetching each one's
+ * LeetCode content and scoring title + statement. Returns an accepted match or
+ * { found: false }.
+ *
+ * @param {string} scalerTitle
+ * @param {string} scalerStatement
+ * @param {Array<{title?:string, titleSlug:string}>} candidates
+ */
+async function rankCandidates(scalerTitle, scalerStatement, candidates) {
+  // De-dupe by slug and cap how many problem bodies we fetch.
+  const seen = new Set();
+  const unique = [];
+  for (const c of candidates) {
+    if (c && c.titleSlug && !seen.has(c.titleSlug)) {
+      seen.add(c.titleSlug);
+      unique.push(c);
+    }
+  }
 
-async function checkLeetCodeGraphQL(title) {
+  let best = null;
+  let fetches = 0;
+
+  for (const cand of unique) {
+    if (fetches >= MAX_CONTENT_FETCHES) break;
+    fetches++;
+
+    const detail = await fetchQuestionDetail(cand.titleSlug);
+    if (!detail) continue;
+
+    const { confidence } = computeMatchConfidence({
+      scalerTitle,
+      lcTitle: detail.title,
+      scalerStatement,
+      lcContent: detail.content,
+    });
+
+    if (!best || confidence > best.confidence) {
+      best = {
+        confidence,
+        url: `https://leetcode.com/problems/${detail.titleSlug}/`,
+        title: detail.title,
+      };
+    }
+
+    // Early exit: a confident exact match won't be beaten.
+    if (confidence >= 0.85) break;
+  }
+
+  if (best && best.confidence >= ACCEPT_THRESHOLD) {
+    return {
+      found: true,
+      url: best.url,
+      title: best.title,
+      confidence: best.confidence,
+    };
+  }
+  return { found: false };
+}
+
+// ─── LeetCode GraphQL search ──────────────────────────────────
+
+async function searchViaGraphQL(title, statement) {
   const query = `
     query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
       problemsetQuestionList: questionList(
@@ -65,7 +147,7 @@ async function checkLeetCodeGraphQL(title) {
 
   const variables = {
     categorySlug: "",
-    limit: 5,
+    limit: MAX_CANDIDATES,
     skip: 0,
     filters: { searchKeywords: title },
   };
@@ -80,62 +162,56 @@ async function checkLeetCodeGraphQL(title) {
 
   const data = await response.json();
   const questions = data.data?.problemsetQuestionList?.questions || [];
+  if (questions.length === 0) return { found: false };
 
-  const target = title.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const match = questions.find((q) => {
-    const qTitle = q.title.toLowerCase().replace(/[^a-z0-9]/g, "");
-    return (
-      qTitle === target ||
-      (qTitle.includes(target) && Math.abs(qTitle.length - target.length) < 5)
-    );
-  });
+  // Pre-rank by title so we fetch content for the most promising first.
+  const ordered = questions
+    .map((q) => ({ ...q, _ts: titleMatchScore(title, q.title) }))
+    .sort((a, b) => b._ts - a._ts);
 
-  if (match) {
-    return {
-      found: true,
-      url: `https://leetcode.com/problems/${match.titleSlug}/`,
-      title: match.title,
-    };
-  }
-
-  return { found: false };
+  return rankCandidates(title, statement, ordered);
 }
 
-// ─── Google Search Fallback ───────────────────────────────────
+// ─── Google search fallback ───────────────────────────────────
 
-async function checkGoogleSearch(title) {
-  const query = encodeURIComponent(`${title} site:leetcode.com/problems`);
-  const searchUrl = `https://www.google.com/search?q=${query}`;
+async function searchViaGoogle(title, statement) {
+  const q = encodeURIComponent(`${title} site:leetcode.com/problems`);
+  const searchUrl = `https://www.google.com/search?q=${q}`;
 
-  try {
-    const response = await fetch(searchUrl);
-    if (!response.ok) throw new Error("Google Search Failed");
+  const response = await fetch(searchUrl);
+  if (!response.ok) throw new Error("Google Search Failed");
 
-    const text = await response.text();
-    const regex = /https:\/\/leetcode\.com\/problems\/([a-z0-9-]+)\//g;
-    const match = regex.exec(text);
+  const text = await response.text();
 
-    if (match && match[0]) {
-      const verified = await verifyProblemMatch(match[1], title);
-      if (verified.valid) {
-        return { found: true, url: match[0], title: verified.title };
-      }
-    }
-  } catch (e) {
-    // Silent catch
+  // Collect ALL candidate slugs from the results page (was: first only).
+  const regex = /https:\/\/leetcode\.com\/problems\/([a-z0-9-]+)\//g;
+  const slugs = [];
+  let m;
+  while ((m = regex.exec(text)) !== null) {
+    slugs.push({ titleSlug: m[1] });
+    if (slugs.length >= MAX_CANDIDATES) break;
   }
 
-  return { found: false, url: null };
+  if (slugs.length === 0) return { found: false };
+  return rankCandidates(title, statement, slugs);
 }
 
-// ─── Verification ─────────────────────────────────────────────
+// ─── Question detail fetch ────────────────────────────────────
 
-async function verifyProblemMatch(slug, userTitle) {
+/**
+ * Fetch a LeetCode problem's title + statement content by slug.
+ * `content` is public for non-premium problems; premium ones return null
+ * content, in which case the match falls back to title-only confidence.
+ */
+async function fetchQuestionDetail(slug) {
   const query = `
-    query questionTitle($titleSlug: String!) {
+    query questionData($titleSlug: String!) {
       question(titleSlug: $titleSlug) {
         questionId
         title
+        titleSlug
+        content
+        difficulty
       }
     }
   `;
@@ -147,107 +223,18 @@ async function verifyProblemMatch(slug, userTitle) {
       body: JSON.stringify({ query, variables: { titleSlug: slug } }),
     });
 
+    if (!response.ok) return null;
     const data = await response.json();
     const question = data.data?.question;
+    if (!question || !question.title) return null;
 
-    if (question?.title && isTitleSimilar(userTitle, question.title)) {
-      return { valid: true, title: question.title };
-    }
-  } catch (e) {}
-
-  return { valid: false, title: null };
-}
-
-// ─── Title Similarity Helpers ─────────────────────────────────
-
-/**
- * Returns true if two problem titles are semantically similar
- * using token overlap + generalized prefix matching.
- */
-function isTitleSimilar(t1, t2) {
-  const set1 = tokenize(t1) || tokenize(t1, false);
-  const set2 = tokenize(t2) || tokenize(t2, false);
-
-  if (set1.length === 0 || set2.length === 0) return false;
-
-  let matches = 0;
-  const usedIndices = new Set();
-
-  for (const w1 of set1) {
-    for (let i = 0; i < set2.length; i++) {
-      if (usedIndices.has(i)) continue;
-      const w2 = set2[i];
-
-      // Exact match
-      if (w1 === w2) {
-        matches++;
-        usedIndices.add(i);
-        break;
-      }
-
-      // Prefix match (Power/Pow, Subsequence/Subseq, etc.)
-      if (w1.length >= 3 && w2.length >= 3) {
-        if (w1.startsWith(w2) || w2.startsWith(w1)) {
-          matches++;
-          usedIndices.add(i);
-          break;
-        }
-      }
-    }
+    return {
+      title: question.title,
+      titleSlug: question.titleSlug || slug,
+      content: question.content || "",
+      difficulty: question.difficulty || "",
+    };
+  } catch (e) {
+    return null;
   }
-
-  const minLength = Math.min(set1.length, set2.length);
-  if (minLength <= 2) return matches >= 1;
-  if (minLength <= 4) return matches >= 2;
-  return matches >= Math.ceil(minLength * 0.5);
-}
-
-/**
- * Tokenizes a title: lowercases, strips punctuation, removes stop words.
- * @param {string}  str
- * @param {boolean} filterShort - drop tokens shorter than 2 chars (default true)
- */
-function tokenize(str, filterShort = true) {
-  const stopWords = new Set([
-    "implement",
-    "find",
-    "calculate",
-    "check",
-    "determine",
-    "generate",
-    "construct",
-    "of",
-    "the",
-    "a",
-    "an",
-    "in",
-    "on",
-    "for",
-    "to",
-    "with",
-    "from",
-    "by",
-    "maximum",
-    "minimum",
-    "longest",
-    "shortest",
-    "largest",
-    "smallest",
-    "problem",
-    "solution",
-    "function",
-    "class",
-    "method",
-  ]);
-
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => {
-      if (!w) return false;
-      if (stopWords.has(w)) return false;
-      if (filterShort && w.length < 2) return false;
-      return true;
-    });
 }

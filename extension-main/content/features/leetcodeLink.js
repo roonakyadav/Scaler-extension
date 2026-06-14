@@ -2,8 +2,13 @@
 // features/leetcodeLink.js
 // LeetCode problem matching and link injection
 // ============================================
-
-const LEETCODE_GRAPHQL_URL = "https://leetcode.com/graphql";
+//
+// Matching/verification (title + problem statement + confidence scoring)
+// runs in the background service worker (background/leetcodeLink.js), which
+// avoids CORS on the LeetCode/Google fetches. This file is responsible for:
+//   - deciding whether the page is even a coding problem (skip MCQ/theory),
+//   - extracting the title + statement,
+//   - and injecting the link only when the background reports high confidence.
 
 /**
  * Check if current page is an assignment problem page
@@ -14,6 +19,81 @@ function isAssignmentProblemPage() {
       location.pathname.includes("/homework/problems")) &&
     location.pathname.match(/\/problems\/\d+/)
   );
+}
+
+/**
+ * Heuristic: is this Scaler problem a coding/DSA problem (vs an MCQ, theory,
+ * or subjective question)? LeetCode links only make sense for coding problems,
+ * so non-DSA subjects (OS, Memory Allocation, DBMS theory, …) should never get
+ * an icon.
+ *
+ * Strategy (strict — require a positive coding signal):
+ *   - A code editor on the page → yes.
+ *   - A "Run"/"Compile" action control → yes (MCQ pages only have "Submit").
+ *   - Anything else (MCQ, theory, subjective, or an unrecognized layout) → no.
+ *
+ * Erring towards "no" keeps the icon off non-DSA questions even on page layouts
+ * we don't recognize; the confidence gate is the second line of defence.
+ */
+function isLikelyCodingProblem() {
+  const EDITOR_SELECTORS = [
+    ".monaco-editor",
+    ".ace_editor",
+    ".CodeMirror",
+    ".cm-editor",
+    "[class*='codeEditor']",
+    "[class*='code-editor']",
+    "[class*='CodeEditor']",
+    "[class*='code_editor']",
+  ];
+  const hasEditor = EDITOR_SELECTORS.some((sel) => document.querySelector(sel));
+  if (hasEditor) return true;
+
+  // "Run" / "Compile" buttons are coding-only (MCQ pages only have "Submit").
+  const actionEls = document.querySelectorAll("button, a, [role='button']");
+  for (const el of actionEls) {
+    const t = (el.textContent || "").trim().toLowerCase();
+    if (t === "run" || t === "run code" || t === "compile" || t === "run & submit") {
+      return true;
+    }
+  }
+
+  // No positive coding signal → treat as non-coding and skip.
+  return false;
+}
+
+/**
+ * Extract the problem statement text from the page, used to verify that the
+ * Scaler problem actually matches the LeetCode problem (catches custom
+ * variations that reuse a heading). Best-effort: returns "" if nothing found.
+ */
+function extractProblemStatement() {
+  const CONTENT_SELECTORS = [
+    ".cr-p-problem-statement",
+    "[class*='problemStatement']",
+    "[class*='problem-statement']",
+    "[class*='ProblemStatement']",
+    "[class*='problem-description']",
+    "[class*='problemDescription']",
+    "[class*='statement']",
+    "[class*='description']",
+  ];
+
+  for (const sel of CONTENT_SELECTORS) {
+    const el = document.querySelector(sel);
+    const text = el && el.innerText ? el.innerText.trim() : "";
+    if (text && text.length > 40) {
+      return text.slice(0, 4000);
+    }
+  }
+
+  // Fallback: the largest text block under the heading's container.
+  const heading = document.querySelector(".cr-p-heading__text");
+  const container = heading ? heading.closest("section, article, div") : null;
+  if (container && container.innerText) {
+    return container.innerText.trim().slice(0, 4000);
+  }
+  return "";
 }
 
 /**
@@ -65,144 +145,6 @@ function extractProblemTitle() {
 }
 
 /**
- * Check LeetCode GraphQL for problem match
- */
-async function checkLeetCodeGraphQL(title) {
-  const query = `
-    query problemsetQuestionList($categorySlug: String, $limit: Int, $skip: Int, $filters: QuestionListFilterInput) {
-      problemsetQuestionList: questionList(
-        categorySlug: $categorySlug
-        limit: $limit
-        skip: $skip
-        filters: $filters
-      ) {
-        questions: data {
-          title
-          titleSlug
-        }
-      }
-    }
-  `;
-
-  const variables = {
-    categorySlug: "",
-    limit: 5,
-    skip: 0,
-    filters: { searchKeywords: title },
-  };
-
-  try {
-    const response = await fetch(LEETCODE_GRAPHQL_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, variables }),
-    });
-
-    if (!response.ok) return { found: false };
-
-    const data = await response.json();
-    const questions = data.data?.problemsetQuestionList?.questions || [];
-
-    // Strict check for LeetCode internal search
-    const target = title.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const match = questions.find((q) => {
-      const qTitle = q.title.toLowerCase().replace(/[^a-z0-9]/g, "");
-      return (
-        qTitle === target ||
-        (qTitle.includes(target) && Math.abs(qTitle.length - target.length) < 5)
-      );
-    });
-
-    if (match) {
-      return {
-        found: true,
-        url: `https://leetcode.com/problems/${match.titleSlug}/`,
-        title: match.title,
-      };
-    }
-  } catch (e) {
-    console.error("[Scaler++] LeetCode GraphQL search failed:", e);
-  }
-
-  return { found: false };
-}
-
-/**
- * Check Google Search for LeetCode problem
- */
-async function checkGoogleSearch(title) {
-  const query = encodeURIComponent(`${title} site:leetcode.com/problems`);
-  const searchUrl = `https://www.google.com/search?q=${query}`;
-
-  try {
-    const response = await fetch(searchUrl);
-    if (!response.ok) throw new Error("Google Search Failed");
-
-    const text = await response.text();
-
-    // Find LeetCode problem URLs
-    const regex = /https:\/\/leetcode\.com\/problems\/([a-z0-9-]+)\//g;
-    let match = regex.exec(text);
-
-    if (match && match[0]) {
-      const url = match[0];
-      const slug = match[1];
-
-      // VERIFICATION STEP
-      const verified = await verifyProblemMatch(slug, title);
-
-      if (verified.valid) {
-        return {
-          found: true,
-          url: url,
-          title: verified.title,
-        };
-      }
-    }
-  } catch (e) {
-    console.error("[Scaler++] Google search failed:", e);
-  }
-
-  return { found: false, url: null };
-}
-
-/**
- * Verify if the problem slug matches the title
- */
-async function verifyProblemMatch(slug, userTitle) {
-  const query = `
-    query questionTitle($titleSlug: String!) {
-      question(titleSlug: $titleSlug) {
-        questionId
-        title
-      }
-    }
-  `;
-
-  try {
-    const response = await fetch(LEETCODE_GRAPHQL_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, variables: { titleSlug: slug } }),
-    });
-
-    const data = await response.json();
-    const question = data.data?.question;
-
-    if (question && question.title) {
-      const leetCodeTitle = question.title;
-      if (isTitleSimilar(userTitle, leetCodeTitle)) {
-        return { valid: true, title: leetCodeTitle };
-      }
-    }
-  } catch (e) {
-    console.error("[Scaler++] LeetCode verification failed:", e);
-  }
-
-  return { valid: false, title: null };
-}
-
-/**
  * Get cached LeetCode problem result
  */
 async function getCachedLeetCodeResult(title) {
@@ -213,17 +155,24 @@ async function getCachedLeetCodeResult(title) {
     if (result[cacheKey]) {
       const cached = result[cacheKey];
 
-      // Check if cache is still valid (30 days)
-      const CACHE_EXPIRY = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+      // Positive results are cached for 30 days; "no confident match" results
+      // for 7 days (shorter, so a later LeetCode addition can be picked up and
+      // we don't permanently mark a real problem as unmatched).
+      const POSITIVE_EXPIRY = 30 * 24 * 60 * 60 * 1000;
+      const NEGATIVE_EXPIRY = 7 * 24 * 60 * 60 * 1000;
+      const expiry = cached.found ? POSITIVE_EXPIRY : NEGATIVE_EXPIRY;
       const now = Date.now();
 
-      if (cached.timestamp && now - cached.timestamp < CACHE_EXPIRY) {
-        return {
-          found: true,
-          url: cached.url,
-          title: cached.title,
-          fromCache: true,
-        };
+      if (cached.timestamp && now - cached.timestamp < expiry) {
+        return cached.found
+          ? {
+              found: true,
+              url: cached.url,
+              title: cached.title,
+              confidence: cached.confidence,
+              fromCache: true,
+            }
+          : { found: false, fromCache: true };
       } else {
         // Cache expired, remove it
         await chrome.storage.local.remove(cacheKey);
@@ -238,16 +187,20 @@ async function getCachedLeetCodeResult(title) {
 }
 
 /**
- * Save LeetCode problem result to cache
+ * Save a LeetCode lookup result (positive or negative) to cache.
  */
-async function cacheLeetCodeResult(title, url, leetcodeTitle) {
+async function cacheLeetCodeResult(title, result) {
   try {
     const cacheKey = `leetcode_cache_${normalizeTitleForCache(title)}`;
-    const cacheData = {
-      url: url,
-      title: leetcodeTitle,
-      timestamp: Date.now(),
-    };
+    const cacheData = result.found
+      ? {
+          found: true,
+          url: result.url,
+          title: result.title,
+          confidence: result.confidence,
+          timestamp: Date.now(),
+        }
+      : { found: false, timestamp: Date.now() };
 
     await chrome.storage.local.set({ [cacheKey]: cacheData });
   } catch (e) {
@@ -256,26 +209,28 @@ async function cacheLeetCodeResult(title, url, leetcodeTitle) {
 }
 
 /**
- * Search for LeetCode problem via background script (avoids CORS)
- * Checks cache first for instant results!
+ * Search for LeetCode problem via background script (avoids CORS).
+ * Checks cache first for instant results. Passes the problem statement so the
+ * background can verify the match on content, not just the title.
  */
-async function searchLeetCodeProblem(title) {
+async function searchLeetCodeProblem(title, statement) {
   try {
-    // Check cache first
+    // Check cache first (covers both confident matches and prior misses).
     const cachedResult = await getCachedLeetCodeResult(title);
     if (cachedResult) {
       return cachedResult;
     }
 
-    // Not in cache, search via background script
+    // Not in cache, search via background script.
     const response = await chrome.runtime.sendMessage({
       action: "searchLeetCodeProblem",
       title: title,
+      statement: statement || "",
     });
 
-    // Cache the result if found
-    if (response.found && response.url) {
-      await cacheLeetCodeResult(title, response.url, response.title);
+    // Cache both outcomes so we don't re-search the same problem every visit.
+    if (response && !response.error) {
+      await cacheLeetCodeResult(title, response);
     }
 
     return response;
@@ -388,13 +343,24 @@ async function initLeetCodeLink() {
   // Wait for the page to fully load
   await new Promise((resolve) => setTimeout(resolve, 1500));
 
+  // Gate: only coding/DSA problems get a LeetCode link. Skips MCQ/theory
+  // questions in non-DSA subjects (OS, Memory Allocation, DBMS, …).
+  if (!isLikelyCodingProblem()) {
+    return;
+  }
+
   const problemTitle = extractProblemTitle();
 
   if (!problemTitle) {
     return;
   }
 
-  const result = await searchLeetCodeProblem(problemTitle);
+  const problemStatement = extractProblemStatement();
+
+  // The background scores the candidate on title + statement and only returns
+  // found:true above its confidence threshold, so a found result here is
+  // already high-confidence.
+  const result = await searchLeetCodeProblem(problemTitle, problemStatement);
 
   if (result.found && result.url) {
     injectLeetCodeLink(result.url);

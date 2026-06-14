@@ -7,6 +7,7 @@
 // ============================================================
 
 importScripts("./companionBypass.js"); // Smart Companion Mode Bypass
+importScripts("../content/utils/stringUtils.js"); // Shared title/statement matching helpers
 importScripts("./leetcodeLink.js"); // LeetCode Problem Search & Verification
 importScripts("./videoTracker.js"); // Capture media streams
 importScripts("./calendarSync.js"); // Syncing classes directly into Google Calendar
