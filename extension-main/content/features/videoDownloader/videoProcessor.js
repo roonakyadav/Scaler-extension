@@ -399,9 +399,48 @@ function getSuggestedName(ext) {
 }
 
 startBtn.addEventListener("click", async () => {
+  const ext = downloadType === "audio" ? "mp3" : "mp4";
+  const mimeType = downloadType === "audio" ? "audio/mpeg" : "video/mp4";
+
+  // The File System Access API lets us stream chunks straight to disk, keeping
+  // RAM flat (~5-10 MB) regardless of video length. It needs transient user
+  // activation, so we MUST request the file handle here — synchronously inside
+  // the click handler, before any network await burns the activation window.
+  // Brave (explicitly) and Firefox (no API) fall back to memory buffering.
+  const supportsFilePicker =
+    typeof window.showSaveFilePicker === "function" && !navigator.brave;
+
+  let writable = null;
+  if (supportsFilePicker) {
+    try {
+      const fileHandle = await window.showSaveFilePicker({
+        suggestedName: getSuggestedName(ext),
+        types: [
+          {
+            description: downloadType === "audio" ? "Audio File" : "Video File",
+            accept:
+              downloadType === "audio"
+                ? { "audio/mpeg": [".mp3"] }
+                : { "video/mp4": [".mp4"] },
+          },
+        ],
+      });
+      writable = await fileHandle.createWritable();
+    } catch (err) {
+      if (err.name === "AbortError") {
+        log("File selection cancelled.");
+        return;
+      }
+      // Any other error (e.g. Brave blocking) → fall back to memory buffering.
+      log("Save picker unavailable — switching to in-memory download...");
+      writable = null;
+    }
+  }
+
   try {
     startBtn.disabled = true;
     statusText.innerText = "Analyzing stream...";
+    const startTime = Date.now();
 
     // 1. Fetch and parse master M3U8
     log("Fetching stream manifest...");
@@ -420,12 +459,6 @@ startBtn.addEventListener("click", async () => {
 
     log(`Found ${segments.length} chunks to download.`);
 
-    // ── AUDIO / VIDEO MODE ──
-    // Download everything into memory first, then trigger save.
-    const ext = downloadType === "audio" ? "mp3" : "mp4";
-    const mimeType = downloadType === "audio" ? "audio/mpeg" : "video/mp4";
-    const startTime = Date.now();
-
     let audioExtractor = null;
     if (downloadType === "audio") {
       audioExtractor = new TSAudioExtractor();
@@ -433,54 +466,31 @@ startBtn.addEventListener("click", async () => {
     }
 
     statusText.innerText = `Downloading ${downloadType} (${CONCURRENCY}x parallel)...`;
-    log(
-      "Downloading to memory — save dialog will appear after download completes.",
-    );
 
-    const memBuffer = await downloadToMemory(segments, audioExtractor);
-    const blob = new Blob([memBuffer], { type: mimeType });
-
-    // ── Try File System Access API after download is complete ──
-    // We attempt showSaveFilePicker here (post-download) so the user picks a
-    // save location *after* seeing 100% progress — same feel as transcript mode.
-    // Brave / Firefox fall through to the blob URL fallback automatically.
-    const supportsFilePicker =
-      typeof window.showSaveFilePicker === "function" && !navigator.brave;
-
-    let saved = false;
-    if (supportsFilePicker) {
+    if (writable) {
+      // ── STREAMING PATH (Chrome / Edge) ──
+      // Each chunk is written to disk as it arrives. RAM stays flat.
+      log("Streaming chunks directly to disk — RAM usage stays minimal.");
       try {
-        const fileHandle = await window.showSaveFilePicker({
-          suggestedName: getSuggestedName(ext),
-          types: [
-            {
-              description:
-                downloadType === "audio" ? "Audio File" : "Video File",
-              accept:
-                downloadType === "audio"
-                  ? { "audio/mpeg": [".mp3"] }
-                  : { "video/mp4": [".mp4"] },
-            },
-          ],
-        });
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
+        await downloadConcurrently(segments, writable, audioExtractor);
         await writable.close();
-        saved = true;
       } catch (err) {
-        if (err.name === "AbortError") {
-          log("File selection cancelled.");
-          startBtn.disabled = false;
-          statusText.innerText = "Ready to download.";
-          return;
+        // Don't leave a half-written file dangling on disk.
+        try {
+          await writable.abort();
+        } catch (_) {
+          /* ignore */
         }
-        // Any other error (e.g. Brave blocking) → fall through to blob URL
-        log("Save picker unavailable — switching to direct download...");
+        throw err;
       }
-    }
+    } else {
+      // ── FALLBACK PATH (Brave / Firefox) ──
+      // Buffer in memory, then save via blob URL. Higher RAM use — only used
+      // where the File System Access API is unavailable.
+      log("Downloading to memory — save will start after download completes.");
+      const memBuffer = await downloadToMemory(segments, audioExtractor);
+      const blob = new Blob([memBuffer], { type: mimeType });
 
-    if (!saved) {
-      // Blob URL fallback (Brave, Firefox, or picker unavailable)
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
@@ -492,7 +502,7 @@ startBtn.addEventListener("click", async () => {
     }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    log(`✅ Download triggered in ${elapsed}s! Check your Downloads folder.`);
+    log(`✅ Download finished in ${elapsed}s! Check your Downloads folder.`);
     statusText.innerText = `🎉 Download Complete! (${elapsed}s)`;
     progressBar.style.background = "#28a745";
 
