@@ -66,9 +66,10 @@
         const json = await res.json();
         const attrs = json?.data?.attributes || {};
         const slug = attrs.slug || null;
+        // Prefer the specific lecture topic title over the course/module name.
         const title =
+          attrs.current_topic?.title ||
           attrs.name ||
-          attrs.academy_module?.name ||
           document.title ||
           slug ||
           "";

@@ -7,7 +7,19 @@ const SESSION_URL =
 
 const metaFetch = makeFetch((url) => {
   if (url.includes("/api/v2/classroom/777/meta")) {
-    return { json: { data: { attributes: { slug: "lec-777", name: "Lecture 777" } } } };
+    return {
+      json: {
+        data: {
+          attributes: {
+            slug: "lec-777",
+            // Course/module name — must NOT be used as the title.
+            academy_module: { name: "SST Neural Network (ML III)" },
+            // The actual lecture title — this is what we should store.
+            current_topic: { title: "Perceptron to MLP" },
+          },
+        },
+      },
+    };
   }
   return { ok: false, status: 404 };
 });
@@ -213,6 +225,8 @@ test("Generate flow calls the LLM, renders the result and caches it", async () =
   assert.equal(save.slug, "lec-777");
   assert.equal(save.classId, "777");
   assert.equal(save.generatedBy, "gen@scaler.com");
+  // Title is the lecture topic (current_topic.title), NOT the course/module name.
+  assert.equal(save.title, "Perceptron to MLP");
   assert.deepEqual(save.summary, generated);
 });
 
@@ -281,8 +295,9 @@ test("shows the humorous message when the transcript exceeds the model's context
   genBtn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await tick(50);
 
-  assert.match(panel.textContent, /Gareeb/i);
-  // raw error is not dumped to the user for this case
+  // A friendly "use a paid model" hint is shown (exact joke copy may vary)…
+  assert.match(panel.textContent, /paid/i);
+  // …and the raw provider error is not dumped to the user.
   assert.doesNotMatch(panel.textContent, /maximum context length/);
 });
 

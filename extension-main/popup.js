@@ -436,7 +436,7 @@ document.addEventListener("DOMContentLoaded", () => {
     devContactLink.addEventListener("click", (e) => {
       e.preventDefault();
       chrome.tabs.create({
-        url: "https://riteshjs.vercel.app/",
+        url: "https://www.riteshprajapati.me/",
       });
     });
   }
