@@ -353,6 +353,22 @@ const htmlUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format
 3. **Fast to implement**: CSV parsing is straightforward
 4. **Fallback path**: Can add authenticated API later if needed
 
+**Implementation Status**: ✅ COMPLETED
+
+**Implemented Modules**:
+- `content/classroom/timetableUrl.js` - Google Sheets URL parsing
+- `content/classroom/timetableFetcher.js` - Source fetching abstraction
+- `content/classroom/timetableParser.js` - CSV parsing
+- `content/classroom/timetableNormalizer.js` - Entry normalization
+- `content/classroom/timetableValidator.js` - Entry validation
+- `content/classroom/timetableSchema.js` - Schema definitions and helpers
+
+**Test Coverage**:
+- `tests/timetableUrl.test.js` - 18 tests passing
+- `tests/timetableParser.test.js` - 20 tests passing
+- `tests/timetableValidator.test.js` - 20 tests passing
+- Test fixtures for various timetable scenarios
+
 **Implementation Plan**:
 1. Accept Google Sheets URL from user
 2. Extract sheet ID from URL
@@ -365,8 +381,33 @@ const htmlUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format
 ```javascript
 // https://docs.google.com/spreadsheets/d/1BxiM.../edit#gid=0
 const sheetId = url.match(/\/d\/([a-zA-Z0-9-_]+)/)[1];
-const gid = url.match(/gid=([0-9]+)/)?.[1] || "0";
+const gid = url.match(/gid=([0-9]+)/)?.[1] || "0"; // gid is separate from sheetId
 ```
+
+**Note**: The original plan incorrectly suggested using the spreadsheet ID in the `gid` parameter. The correct implementation extracts `spreadsheetId` from the path and `gid` separately from the hash fragment or query parameter.
+
+**Findings from Implementation**:
+
+1. **CSV Format Limitations**: The CSV export from Google Sheets does NOT preserve merged cell information. This means:
+   - Vertically merged class blocks spanning multiple time slots will appear as separate rows
+   - The parser cannot reconstruct the original merged structure from CSV alone
+   - HTML export would be required to preserve merged cell information
+
+2. **Current CSV Parser Strategy**: Since CSV doesn't preserve merges, the current implementation:
+   - Treats each CSV row as a separate entry
+   - Requires the timetable to be in a "flat" format (one row per class)
+   - Cannot automatically detect that multiple rows represent one continuous class
+   - Users must ensure their timetable is formatted with one row per class session
+
+3. **HTML Export Needed for Complex Timetables**: For timetables with:
+   - Vertically merged class blocks
+   - Complex visual layouts
+   - Multiple groups in different columns
+   The CSV approach will be insufficient. HTML export parsing is required but not yet implemented.
+
+4. **Batch/Group Handling**: The parser preserves batch/group information from the CSV. Normalization helpers allow flexible matching (Grp B, Group B, Batch B, B).
+
+5. **Validation**: The validator enforces that class entries must have classroom information. Lunch entries are exempt from this requirement.
 
 **Fallback Hierarchy**:
 1. **Priority 1**: Public CSV export (implement first)
