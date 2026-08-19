@@ -314,14 +314,83 @@ function selectBestMatch(candidates, config = DEFAULT_MATCH_CONFIG) {
 }
 
 /**
- * Match a Scaler class to timetable entries.
+ * Build an index for efficient timetable lookup.
+ * 
+ * @param {Array<Object>} timetableEntries - Normalized timetable entries
+ * @returns {Object} - Index structure
+ */
+function buildTimetableIndex(timetableEntries) {
+  if (!Array.isArray(timetableEntries)) {
+    return {
+      byDate: new Map(),
+      byDay: new Map(),
+      entries: []
+    };
+  }
+  
+  const byDate = new Map();
+  const byDay = new Map();
+  
+  timetableEntries.forEach(entry => {
+    // Index by date
+    if (entry.date) {
+      if (!byDate.has(entry.date)) {
+        byDate.set(entry.date, []);
+      }
+      byDate.get(entry.date).push(entry);
+    }
+    
+    // Index by dayOfWeek
+    if (entry.dayOfWeek) {
+      const dayKey = entry.dayOfWeek.toLowerCase();
+      if (!byDay.has(dayKey)) {
+        byDay.set(dayKey, []);
+      }
+      byDay.get(dayKey).push(entry);
+    }
+  });
+  
+  return {
+    byDate,
+    byDay,
+    entries: timetableEntries
+  };
+}
+
+/**
+ * Get candidate entries from index for a given Scaler class.
  * 
  * @param {Object} scalerClass - Canonical Scaler class
- * @param {Array<Object>} timetableEntries - Normalized timetable entries
+ * @param {Object} index - Timetable index
+ * @returns {Array<Object>} - Candidate entries
+ */
+function getCandidatesFromIndex(scalerClass, index) {
+  let candidates = [];
+  
+  // Try date-based lookup first
+  if (scalerClass.date && index.byDate.has(scalerClass.date)) {
+    candidates = index.byDate.get(scalerClass.date);
+  }
+  // Fall back to dayOfWeek lookup
+  else if (scalerClass.dayOfWeek) {
+    const dayKey = scalerClass.dayOfWeek.toLowerCase();
+    if (index.byDay.has(dayKey)) {
+      candidates = index.byDay.get(dayKey);
+    }
+  }
+  
+  return candidates;
+}
+
+/**
+ * Match a Scaler class to timetable entries using index for performance.
+ * 
+ * @param {Object} scalerClass - Canonical Scaler class
+ * @param {Object} timetableIndex - Timetable index (or raw entries)
  * @param {Object} options - Matching options
  * @returns {Object} - Match result
  */
-function matchClassToTimetable(scalerClass, timetableEntries, options = {}) {
+function matchClassToTimetable(scalerClass, timetableIndex, options = {}) {
   const config = {
     ...DEFAULT_MATCH_CONFIG,
     ...options.config
@@ -339,6 +408,19 @@ function matchClassToTimetable(scalerClass, timetableEntries, options = {}) {
     };
   }
   
+  // Handle both raw entries and indexed structure
+  let timetableEntries;
+  let useIndex = false;
+  
+  if (timetableIndex && timetableIndex.byDate && timetableIndex.byDay) {
+    // Already indexed
+    timetableEntries = getCandidatesFromIndex(scalerClass, timetableIndex);
+    useIndex = true;
+  } else {
+    // Raw entries array
+    timetableEntries = timetableIndex;
+  }
+  
   // Find time-based candidates
   const candidates = findTimeCandidates(scalerClass, timetableEntries, config);
   
@@ -349,6 +431,7 @@ function matchClassToTimetable(scalerClass, timetableEntries, options = {}) {
   result.debug = {
     scalerClassId: scalerClass.classId,
     totalCandidates: candidates.length,
+    usedIndex: useIndex,
     config
   };
   

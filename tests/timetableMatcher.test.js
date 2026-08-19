@@ -224,7 +224,59 @@ function selectBestMatch(candidates, config = DEFAULT_MATCH_CONFIG) {
   };
 }
 
-function matchClassToTimetable(scalerClass, timetableEntries, options = {}) {
+function buildTimetableIndex(timetableEntries) {
+  if (!Array.isArray(timetableEntries)) {
+    return {
+      byDate: new Map(),
+      byDay: new Map(),
+      entries: []
+    };
+  }
+  
+  const byDate = new Map();
+  const byDay = new Map();
+  
+  timetableEntries.forEach(entry => {
+    if (entry.date) {
+      if (!byDate.has(entry.date)) {
+        byDate.set(entry.date, []);
+      }
+      byDate.get(entry.date).push(entry);
+    }
+    
+    if (entry.dayOfWeek) {
+      const dayKey = entry.dayOfWeek.toLowerCase();
+      if (!byDay.has(dayKey)) {
+        byDay.set(dayKey, []);
+      }
+      byDay.get(dayKey).push(entry);
+    }
+  });
+  
+  return {
+    byDate,
+    byDay,
+    entries: timetableEntries
+  };
+}
+
+function getCandidatesFromIndex(scalerClass, index) {
+  let candidates = [];
+  
+  if (scalerClass.date && index.byDate.has(scalerClass.date)) {
+    candidates = index.byDate.get(scalerClass.date);
+  }
+  else if (scalerClass.dayOfWeek) {
+    const dayKey = scalerClass.dayOfWeek.toLowerCase();
+    if (index.byDay.has(dayKey)) {
+      candidates = index.byDay.get(dayKey);
+    }
+  }
+  
+  return candidates;
+}
+
+function matchClassToTimetable(scalerClass, timetableIndex, options = {}) {
   const config = {
     ...DEFAULT_MATCH_CONFIG,
     ...options.config
@@ -241,12 +293,23 @@ function matchClassToTimetable(scalerClass, timetableEntries, options = {}) {
     };
   }
   
+  let timetableEntries;
+  let useIndex = false;
+  
+  if (timetableIndex && timetableIndex.byDate && timetableIndex.byDay) {
+    timetableEntries = getCandidatesFromIndex(scalerClass, timetableIndex);
+    useIndex = true;
+  } else {
+    timetableEntries = timetableIndex;
+  }
+  
   const candidates = findTimeCandidates(scalerClass, timetableEntries, config);
   const result = selectBestMatch(candidates, config);
   
   result.debug = {
     scalerClassId: scalerClass.classId,
     totalCandidates: candidates.length,
+    usedIndex: useIndex,
     config
   };
   
@@ -624,8 +687,88 @@ describe('selectBestMatch', () => {
   });
 });
 
+describe('buildTimetableIndex', () => {
+  it('should build index by date', () => {
+    const entries = [
+      { date: '2024-02-23', classroom: 'A' },
+      { date: '2024-02-24', classroom: 'B' }
+    ];
+    
+    const index = buildTimetableIndex(entries);
+    
+    assert.strictEqual(index.byDate.has('2024-02-23'), true);
+    assert.strictEqual(index.byDate.has('2024-02-24'), true);
+    assert.strictEqual(index.byDate.get('2024-02-23').length, 1);
+  });
+
+  it('should build index by dayOfWeek', () => {
+    const entries = [
+      { dayOfWeek: 'Monday', classroom: 'A' },
+      { dayOfWeek: 'Tuesday', classroom: 'B' }
+    ];
+    
+    const index = buildTimetableIndex(entries);
+    
+    assert.strictEqual(index.byDay.has('monday'), true);
+    assert.strictEqual(index.byDay.has('tuesday'), true);
+  });
+
+  it('should handle empty array', () => {
+    const index = buildTimetableIndex([]);
+    
+    assert.strictEqual(index.byDate.size, 0);
+    assert.strictEqual(index.byDay.size, 0);
+  });
+
+  it('should handle null input', () => {
+    const index = buildTimetableIndex(null);
+    
+    assert.strictEqual(index.byDate.size, 0);
+    assert.strictEqual(index.byDay.size, 0);
+  });
+});
+
+describe('getCandidatesFromIndex', () => {
+  it('should get candidates by date', () => {
+    const index = {
+      byDate: new Map([['2024-02-23', [{ classroom: 'A' }]]]),
+      byDay: new Map()
+    };
+    const scalerClass = { date: '2024-02-23' };
+    
+    const candidates = getCandidatesFromIndex(scalerClass, index);
+    
+    assert.strictEqual(candidates.length, 1);
+    assert.strictEqual(candidates[0].classroom, 'A');
+  });
+
+  it('should get candidates by dayOfWeek', () => {
+    const index = {
+      byDate: new Map(),
+      byDay: new Map([['monday', [{ classroom: 'A' }]]])
+    };
+    const scalerClass = { dayOfWeek: 'Monday' };
+    
+    const candidates = getCandidatesFromIndex(scalerClass, index);
+    
+    assert.strictEqual(candidates.length, 1);
+  });
+
+  it('should return empty array when no match', () => {
+    const index = {
+      byDate: new Map(),
+      byDay: new Map()
+    };
+    const scalerClass = { date: '2024-02-23' };
+    
+    const candidates = getCandidatesFromIndex(scalerClass, index);
+    
+    assert.strictEqual(candidates.length, 0);
+  });
+});
+
 describe('matchClassToTimetable', () => {
-  it('should match class to timetable', () => {
+  it('should match class to timetable with raw entries', () => {
     const scalerClass = {
       classId: '12345',
       date: '2024-02-23',
@@ -731,5 +874,32 @@ describe('matchClassToTimetable', () => {
     
     assert.strictEqual(result.debug.scalerClassId, '12345');
     assert.strictEqual(result.debug.totalCandidates, 0);
+  });
+
+  it('should use index when provided', () => {
+    const scalerClass = {
+      classId: '12345',
+      date: '2024-02-23',
+      startTime: '09:30',
+      endTime: '11:00',
+      batch: 'grp b',
+      course: 'mern'
+    };
+    const timetableEntries = [
+      {
+        date: '2024-02-23',
+        startTime: '09:30',
+        endTime: '11:00',
+        batch: 'grp b',
+        course: 'mern',
+        classroom: 'Classroom A'
+      }
+    ];
+    
+    const index = buildTimetableIndex(timetableEntries);
+    const result = matchClassToTimetable(scalerClass, index);
+    
+    assert.strictEqual(result.matched, true);
+    assert.strictEqual(result.debug.usedIndex, true);
   });
 });
