@@ -433,6 +433,9 @@ function parseTimetableHTML(htmlText) {
     metadata.dayColumns = dayColumns;
     metadata.classBlocksDetected = entries.filter(e => e.type === 'class').length;
     metadata.lunchBlocksDetected = entries.filter(e => e.type === 'lunch').length;
+    metadata.totalEntries = entries.length;
+    metadata.timeSlotsDetected = timeSlots.length;
+    metadata.mergedCellsDetected = cells.filter(c => c.rowSpan > 1 || c.colSpan > 1).length;
     
     return { entries, errors, metadata };
     
