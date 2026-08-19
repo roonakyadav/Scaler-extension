@@ -416,6 +416,181 @@ const gid = url.match(/gid=([0-9]+)/)?.[1] || "0"; // gid is separate from sheet
 
 ---
 
+## 5. Matching Engine Architecture
+
+### Canonical Scaler Class Representation
+
+The matching engine uses a canonical representation of Scaler classes to decouple from raw API responses:
+
+```javascript
+{
+  classId: "12345",
+  date: "2024-02-23",
+  dayOfWeek: "Friday",
+  startTime: "14:30",
+  endTime: "16:30",
+  course: "mern",
+  batch: "grp b",
+  topic: "Binary Search Trees",
+  teacher: "John Doe",
+  eventType: "lesson",
+  raw: { /* original API response */ }
+}
+```
+
+**Key Design Decisions**:
+- Uses UTC time parsing to avoid timezone issues
+- Extracts course and batch from `super_batch_name` using generic patterns
+- Preserves raw API data for debugging
+- Handles missing optional fields gracefully
+
+### Course and Batch Extraction
+
+**Course Extraction** (`extractCourse`):
+- Extracts first word from `super_batch_name` (e.g., "MERN - 2029 Grp B" → "mern")
+- Filters out non-course words (batch, group, sst, super)
+- Returns null if no valid course can be extracted
+- Does not use hardcoded course lists
+
+**Batch/Group Extraction** (`extractBatchGroup`):
+- Supports patterns: "Grp X", "Group X", "Batch X"
+- Normalizes all to "grp x" format for consistent matching
+- Case-insensitive and whitespace-tolerant
+- Returns null if no group pattern found
+
+### Multi-Stage Matching Algorithm
+
+The matcher uses a staged approach with confidence scoring:
+
+**Stage 1: Date/Time Filtering**
+- Matches exact date or dayOfWeek
+- Matches start and end times within 5-minute tolerance
+- Only entries passing this stage are considered
+
+**Stage 2: Confidence Scoring**
+```
+Time/Date match: 40%
+Batch match: 20%
+Course match: 25%
+Teacher match: 15%
+```
+
+**Stage 3: Best Match Selection**
+- Sorts candidates by score descending
+- Rejects if top two scores are within 0.1 (ambiguous)
+- Rejects if best score < 0.7 (low confidence)
+- Rejects if classroom field is missing
+
+### Ambiguity Handling
+
+The matcher explicitly rejects ambiguous matches rather than guessing:
+
+```javascript
+{
+  matched: false,
+  reason: "AMBIGUOUS_MATCH",
+  candidates: [...]
+}
+```
+
+**Ambiguity Scenarios**:
+- Two timetable entries with similar scores (e.g., MERN vs CML at same time)
+- Missing course/batch information preventing disambiguation
+- Multiple valid classrooms for same time slot
+
+### Missing Information Handling
+
+**Missing Teacher**: Still matches using date/time, batch, course
+**Missing Course**: Uses date/time, batch, teacher
+**Missing Batch**: Uses date/time, course, teacher
+**Missing Everything Except Time**: Only matches if exactly one candidate exists
+
+### Weekly vs Dated Timetables
+
+The matcher supports both modes:
+
+**Dated Timetable**: Matches on exact date (YYYY-MM-DD)
+**Weekly Timetable**: Matches on dayOfWeek (Monday, Tuesday, etc.)
+
+The matcher automatically detects which mode to use based on the timetable entry structure.
+
+### Performance Optimization
+
+For large timetables, the matcher uses indexing:
+
+```javascript
+const index = buildTimetableIndex(timetableEntries);
+// Creates byDate and byOfWeek maps for O(1) lookup
+```
+
+**Index Structure**:
+- `byDate`: Map of date → entries array
+- `byDay`: Map of dayOfWeek (lowercase) → entries array
+- `entries`: Original entries array
+
+The `matchClassToTimetable` function accepts both raw entries and pre-built indexes, allowing callers to optimize for their use case.
+
+### Manual Override Support
+
+The matcher supports manual overrides as highest priority:
+
+```javascript
+matchClassToTimetable(scalerClass, timetableEntries, {
+  manualOverride: { classroom: "Manual Room" }
+});
+```
+
+This allows future UI to let users explicitly set classroom for specific classes.
+
+### Public API
+
+**Primary Function**:
+```javascript
+matchClassToTimetable(scalerClass, timetableIndex, options)
+```
+
+**Returns**:
+```javascript
+{
+  matched: true/false,
+  classroom: "Classroom A 1st floor", // if matched
+  timetableEntry: {...}, // matched entry
+  score: 0.85,
+  reasons: ["date/time matched", "batch matched", "course matched"],
+  candidates: [...], // top 3 candidates for debugging
+  debug: {
+    scalerClassId: "12345",
+    totalCandidates: 5,
+    usedIndex: true,
+    config: {...}
+  }
+}
+```
+
+**Failure Reasons**:
+- `NO_CANDIDATES`: No entries match date/time
+- `AMBIGUOUS_MATCH`: Multiple candidates with similar scores
+- `LOW_CONFIDENCE`: Best candidate score below threshold
+- `MISSING_CLASSROOM`: Matched entry has no classroom field
+
+### Implementation Status
+
+**Completed Modules**:
+- `scalerClassNormalizer.js` - Scaler event normalization
+- `timetableMatcher.js` - Multi-stage matching engine
+- `timetableMatcher.test.js` - 56 unit tests (all passing)
+
+**Test Coverage**:
+- Time matching with tolerance (exact, ±1, ±5, >5 min)
+- Batch/course/teacher matching with normalization
+- Date vs dayOfWeek matching
+- Ambiguity detection
+- Missing information handling
+- Manual override
+- Performance indexing
+
+---
+
 ## 5. Recommended Architecture
 
 ### Approach Comparison
