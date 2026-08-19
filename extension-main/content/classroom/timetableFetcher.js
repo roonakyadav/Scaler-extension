@@ -119,3 +119,59 @@ async function fetchTimetableSourceWithFallback(source, format = 'csv', useBackg
     return await fetchTimetableSourceViaBackground(source, format);
   }
 }
+
+/**
+ * Fetch timetable with intelligent source selection.
+ * Tries HTML first (for merged cell support), falls back to CSV.
+ * 
+ * @param {{spreadsheetId: string, gid: string}} source - Parsed Google Sheets URL components
+ * @param {boolean} [preferHtml=true] - Whether to prefer HTML over CSV
+ * @returns {Promise<{type: string, content: string, url: string, fallbackUsed: boolean}>} - Fetched source data
+ */
+async function fetchTimetableSourceWithSelection(source, preferHtml = true) {
+  if (preferHtml) {
+    try {
+      // Try HTML first for merged cell support
+      const htmlSource = await fetchTimetableSourceWithFallback(source, 'html');
+      return {
+        ...htmlSource,
+        fallbackUsed: false
+      };
+    } catch (error) {
+      console.warn('[Scaler++] HTML fetch failed, falling back to CSV:', error.message);
+      // Fallback to CSV
+      try {
+        const csvSource = await fetchTimetableSourceWithFallback(source, 'csv');
+        return {
+          ...csvSource,
+          fallbackUsed: true,
+          fallbackReason: error.message
+        };
+      } catch (csvError) {
+        // Both failed, throw the original HTML error with context
+        throw new Error(`Both HTML and CSV fetch failed. HTML: ${error.message}, CSV: ${csvError.message}`);
+      }
+    }
+  } else {
+    // Prefer CSV (for flat timetables)
+    try {
+      const csvSource = await fetchTimetableSourceWithFallback(source, 'csv');
+      return {
+        ...csvSource,
+        fallbackUsed: false
+      };
+    } catch (error) {
+      console.warn('[Scaler++] CSV fetch failed, trying HTML as fallback:', error.message);
+      try {
+        const htmlSource = await fetchTimetableSourceWithFallback(source, 'html');
+        return {
+          ...htmlSource,
+          fallbackUsed: true,
+          fallbackReason: error.message
+        };
+      } catch (htmlError) {
+        throw new Error(`Both CSV and HTML fetch failed. CSV: ${error.message}, HTML: ${htmlError.message}`);
+      }
+    }
+  }
+}

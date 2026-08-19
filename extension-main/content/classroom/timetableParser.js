@@ -508,19 +508,31 @@ function extractClassroomFromText(text) {
 /**
  * Parse timetable source based on format.
  * 
- * @param {{type: string, content: string}} source - Fetched source data
- * @returns {{entries: Array<Object>, errors: Array<string>}} - Parsed entries and errors
+ * @param {{type: string, content: string, fallbackUsed?: boolean, fallbackReason?: string}} source - Fetched source data
+ * @returns {{entries: Array<Object>, errors: Array<string>, metadata: Object}} - Parsed entries and metadata
  */
 function parseTimetable(source) {
   if (!source || !source.content) {
-    return { entries: [], errors: ['Invalid source'] };
+    return { entries: [], errors: ['Invalid source'], metadata: {} };
   }
   
+  const metadata = {
+    sourceType: source.type,
+    fallbackUsed: source.fallbackUsed || false,
+    fallbackReason: source.fallbackReason || null
+  };
+  
   if (source.type === 'csv') {
-    return parseTimetableCSV(source.content);
+    const result = parseTimetableCSV(source.content);
+    return { ...result, metadata };
   } else if (source.type === 'html') {
-    return parseTimetableHTML(source.content);
+    const result = parseTimetableHTML(source.content);
+    return { ...result, metadata };
   } else {
-    return { entries: [], errors: [`Unsupported source type: ${source.type}`] };
+    return { 
+      entries: [], 
+      errors: [`Unsupported source type: ${source.type}`],
+      metadata
+    };
   }
 }
