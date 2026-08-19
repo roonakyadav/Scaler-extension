@@ -221,19 +221,288 @@ function parseTimetableCSV(csvText) {
 
 /**
  * Parse HTML timetable into structured entries.
- * This is a placeholder for future HTML export parsing.
  * HTML export is needed for complex timetables with merged cells.
  * 
  * @param {string} htmlText - Raw HTML text
- * @returns {{entries: Array<Object>, errors: Array<string>}} - Parsed entries and errors
+ * @returns {{entries: Array<Object>, errors: Array<string>, metadata: Object}} - Parsed entries and metadata
  */
 function parseTimetableHTML(htmlText) {
+  // Import HTML parser functions
+  // In content script context, these would be loaded via importScripts or included
+  // For now, we'll implement a basic version inline
+  
   const errors = [];
-  const entries = [];
+  const metadata = { source: 'google-sheets-html' };
   
-  errors.push('HTML parsing not yet implemented. Use CSV format for now.');
+  if (!htmlText || htmlText.trim().length === 0) {
+    errors.push('Empty HTML content');
+    return { entries: [], errors, metadata };
+  }
   
-  return { entries, errors };
+  // Try to parse using DOMParser (available in browser context)
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
+    const table = doc.querySelector('table');
+    
+    if (!table) {
+      errors.push('No table found in HTML');
+      return { entries: [], errors, metadata };
+    }
+    
+    // Parse table structure
+    const rows = Array.from(table.querySelectorAll('tr'));
+    const cells = [];
+    let rowIndex = 0;
+    
+    rows.forEach((tr) => {
+      const tds = Array.from(tr.querySelectorAll('td, th'));
+      let colIndex = 0;
+      
+      tds.forEach((td) => {
+        const rowSpan = parseInt(td.getAttribute('rowspan') || '1', 10);
+        const colSpan = parseInt(td.getAttribute('colspan') || '1', 10);
+        const text = td.textContent.trim();
+        
+        cells.push({
+          row: rowIndex,
+          column: colIndex,
+          text: text,
+          rowSpan: rowSpan,
+          colSpan: colSpan,
+          isHeader: td.tagName === 'TH'
+        });
+        
+        colIndex += colSpan;
+      });
+      
+      rowIndex++;
+    });
+    
+    metadata.totalRows = rowIndex;
+    metadata.totalCells = cells.length;
+    
+    // Reconstruct logical grid
+    const maxCols = Math.max(...cells.map(c => c.column + c.colSpan));
+    const grid = Array.from({ length: rowIndex }, () => 
+      Array.from({ length: maxCols }, () => null)
+    );
+    
+    cells.forEach(cell => {
+      for (let r = cell.row; r < cell.row + cell.rowSpan && r < rowIndex; r++) {
+        for (let c = cell.column; c < cell.column + cell.colSpan && c < maxCols; c++) {
+          if (r === cell.row && c === cell.column) {
+            grid[r][c] = cell;
+          } else {
+            grid[r][c] = { occupiedBy: cell };
+          }
+        }
+      }
+    });
+    
+    // Detect time column
+    const timePattern = /\d{1,2}:\d{2}\s*(AM|PM)?\s*-\s*\d{1,2}:\d{2}\s*(AM|PM)?/i;
+    let timeColumn = null;
+    let bestScore = 0;
+    
+    for (let col = 0; col < maxCols; col++) {
+      let score = 0;
+      for (let row = 0; row < rowIndex; row++) {
+        const cell = grid[row][col];
+        if (cell && cell.text && !cell.occupiedBy && timePattern.test(cell.text)) {
+          score++;
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        timeColumn = col;
+      }
+    }
+    
+    if (timeColumn === null) {
+      errors.push('Could not detect time column');
+      return { entries: [], errors, metadata };
+    }
+    
+    // Detect day columns
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const dayColumns = [];
+    const headerRow = grid[0] || grid[1];
+    
+    if (headerRow) {
+      for (let col = 0; col < maxCols; col++) {
+        if (col === timeColumn) continue;
+        const cell = headerRow[col];
+        if (cell && cell.text && !cell.occupiedBy) {
+          const normalizedText = cell.text.toLowerCase().trim();
+          for (const day of days) {
+            if (normalizedText.includes(day.toLowerCase())) {
+              dayColumns.push({ column: col, day });
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+    if (dayColumns.length === 0) {
+      errors.push('Could not detect day columns');
+      return { entries: [], errors, metadata };
+    }
+    
+    // Extract entries
+    const entries = [];
+    const processedCells = new Set();
+    
+    // Get time slots
+    const timeSlots = [];
+    for (let row = 0; row < rowIndex; row++) {
+      const cell = grid[row][timeColumn];
+      if (cell && cell.text && !cell.occupiedBy) {
+        const { startTime, endTime } = parseTimeRange(cell.text);
+        if (startTime && endTime) {
+          timeSlots.push({ row, startTime, endTime });
+        }
+      }
+    }
+    
+    // Process each day column
+    dayColumns.forEach(({ column, day }) => {
+      timeSlots.forEach(({ row, startTime, endTime }) => {
+        const cell = grid[row][column];
+        
+        if (!cell || cell.occupiedBy) return;
+        
+        const cellKey = `${cell.row}-${cell.column}`;
+        if (processedCells.has(cellKey)) return;
+        
+        const text = cell.text;
+        if (!text || text.trim() === '') return;
+        
+        // Check for lunch
+        if (text.toLowerCase().includes('lunch')) {
+          entries.push({
+            type: 'lunch',
+            dayOfWeek: day,
+            startTime,
+            endTime,
+            raw: text
+          });
+          processedCells.add(cellKey);
+          return;
+        }
+        
+        // Check for group header
+        if (/batch.*group|group.*batch|grp/i.test(text.toLowerCase())) {
+          return;
+        }
+        
+        // Extract class information
+        const course = extractCourseFromText(text);
+        const batch = extractBatchFromText(text);
+        const teacher = extractTeacherFromText(text);
+        const classroom = extractClassroomFromText(text);
+        
+        // Calculate duration from rowspan
+        let duration = endTime;
+        if (cell.rowSpan > 1) {
+          const lastRow = cell.row + cell.rowSpan - 1;
+          const lastTimeSlot = timeSlots.find(ts => ts.row === lastRow);
+          if (lastTimeSlot) {
+            duration = lastTimeSlot.endTime;
+          }
+        }
+        
+        entries.push({
+          type: 'class',
+          dayOfWeek: day,
+          startTime,
+          endTime: duration,
+          batch,
+          course,
+          teacher,
+          classroom,
+          raw: text
+        });
+        
+        processedCells.add(cellKey);
+      });
+    });
+    
+    metadata.timeColumn = timeColumn;
+    metadata.dayColumns = dayColumns;
+    metadata.classBlocksDetected = entries.filter(e => e.type === 'class').length;
+    metadata.lunchBlocksDetected = entries.filter(e => e.type === 'lunch').length;
+    
+    return { entries, errors, metadata };
+    
+  } catch (error) {
+    errors.push(`HTML parsing error: ${error.message}`);
+    return { entries: [], errors, metadata };
+  }
+}
+
+// Helper functions for HTML parsing
+function extractCourseFromText(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const coursePattern = /^([A-Z]{2,})\s*-\s*\d{4}/i;
+  
+  for (const line of lines) {
+    const match = line.match(coursePattern);
+    if (match) return match[1].toLowerCase();
+  }
+  
+  const firstWord = lines[0]?.split(/\s+/)[0];
+  if (firstWord && /^[A-Z]{2,5}$/i.test(firstWord)) {
+    const lowerWord = firstWord.toLowerCase();
+    const nonCourseWords = ['some', 'this', 'that', 'with', 'from', 'class', 'room', 'lunch'];
+    if (!nonCourseWords.includes(lowerWord)) return lowerWord;
+  }
+  
+  return null;
+}
+
+function extractBatchFromText(text) {
+  const lowerText = text.toLowerCase();
+  const patterns = [/grp\s+([a-z])/i, /group\s+([a-z])/i, /batch\s+([a-z])/i];
+  
+  for (const pattern of patterns) {
+    const match = lowerText.match(pattern);
+    if (match) return `grp ${match[1]}`;
+  }
+  
+  return null;
+}
+
+function extractTeacherFromText(text) {
+  const parenMatch = text.match(/\(([^)]+)\)/);
+  if (parenMatch) {
+    const teacher = parenMatch[1].trim();
+    if (!teacher.toLowerCase().includes('grp') && 
+        !teacher.toLowerCase().includes('batch') &&
+        !teacher.toLowerCase().includes('lunch')) {
+      return teacher;
+    }
+  }
+  return null;
+}
+
+function extractClassroomFromText(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const classroomPattern = /classroom\s+([a-z0-9\s]+)/i;
+  
+  for (const line of lines) {
+    const match = line.match(classroomPattern);
+    if (match) return match[1].trim();
+  }
+  
+  for (const line of lines) {
+    if (/class|room/i.test(line) && !/lunch/i.test(line)) {
+      return line.trim();
+    }
+  }
+  
+  return null;
 }
 
 /**
