@@ -3,7 +3,7 @@
 // All logic is split across:
 //   cleaner/  → selectors, cleanerEngine, modalHandler, sidebarHandler
 //   core/     → settings, styleInjector, urlObserver
-//   features/ → problemSearch, practiceMode, leetcodeLink, joinClassButton, spotlightSearch
+//   features/ → problemSearch, practiceMode, leetcodeLink, joinClassButton, spotlightSearch, classroomInfo
 //   utils/    → domUtils, stringUtils
 // ============================================
 
@@ -185,6 +185,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const sTab = document.getElementById('classroom-lecture-summary'); if (sTab) sTab.remove();
         const sPanel = document.getElementById('scaler-summary-panel'); if (sPanel) sPanel.remove();
       }
+    } else if (key === "classroom-info") {
+      if (value) {
+        if (typeof initClassroomInfo === "function") initClassroomInfo();
+      } else {
+        // teardown classroom-info: disconnect observer and remove indicators
+        try {
+          if (window._classroomInfoObserver) {
+            window._classroomInfoObserver.disconnect();
+            window._classroomInfoObserver = null;
+          }
+        } catch (e) {
+          console.warn("Error tearing down classroom-info observer", e);
+        }
+        document.querySelectorAll('.scaler-classroom-info, .scaler-classroom-tag').forEach(el => el.remove());
+        document.querySelectorAll('[data-scaler-classroom-processed]').forEach(el => el.removeAttribute('data-scaler-classroom-processed'));
+        document.querySelectorAll('[data-scaler-classroom-cache-key]').forEach(el => el.removeAttribute('data-scaler-classroom-cache-key'));
+      }
     } else {
       updateVisibilityForKey(key, value);
     }
@@ -234,6 +251,9 @@ window.addEventListener("load", async () => {
     }
     if (currentSettings && currentSettings["lecture-summary"] && typeof initLectureSummary === "function") {
       initLectureSummary();
+    }
+    if (currentSettings && currentSettings["classroom-info"] && typeof initClassroomInfo === "function") {
+      initClassroomInfo();
     }
   }, 1700);
 
@@ -317,6 +337,9 @@ handleUrlChange = function () {
     }
     if (currentSettings && currentSettings["lecture-summary"] && typeof initLectureSummary === "function") {
       initLectureSummary();
+    }
+    if (currentSettings && currentSettings["classroom-info"] && typeof initClassroomInfo === "function") {
+      initClassroomInfo();
     }
   }, 1700);
 
