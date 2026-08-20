@@ -602,15 +602,20 @@ matchClassToTimetable(scalerClass, timetableIndex, options)
 | **C. User Manual Configuration** | No parsing needed, works for any source | High user effort, error-prone, tedious | Low |
 | **D. Hybrid** | Flexible, fallback options | More complex, multiple code paths | High |
 
-### Recommendation: Hybrid Approach (A → C)
+### Recommendation: Hybrid Approach (HTML → CSV)
 
-**Primary: Direct Google Sheet Parsing (Public CSV)**
-- Implement first
-- Covers 80% of use cases (public timetables)
-- User provides URL once, extension handles rest
+**Primary: Direct Google Sheet Parsing (HTML Export)**
+- HTML export preserves merged cell structure (rowspan/colspan)
+- Essential for complex timetables with class blocks spanning multiple time slots
+- Accurate duration inference from merged cells
+- Covers structured timetables with group sections, lunch blocks, etc.
 
-**Fallback: Manual Configuration**
-- Implement if Google Sheet parsing proves unreliable
+**Fallback: CSV Export**
+- For flat timetables without merged cells
+- Simpler parsing for basic timetables
+- Automatic fallback if HTML fetch fails
+
+**Future: Manual Configuration**
 - User manually maps: (date, time, subject) → classroom
 - Stored as JSON in extension settings
 - Can be edited via popup UI
@@ -631,11 +636,182 @@ matchClassToTimetable(scalerClass, timetableIndex, options)
 2. User enables "Classroom Info" toggle
 3. User enters Google Sheets URL
 4. User selects/enters their batch/group
-5. Extension fetches and parses timetable
-6. Extension caches timetable locally
-7. User navigates to Scaler dashboard
-8. Extension matches class cards to timetable
-9. Classroom labels appear on cards
+5. Extension fetches timetable (HTML preferred, CSV fallback)
+6. Extension parses timetable structure
+7. Extension normalizes entries to canonical schema
+8. Extension validates entries
+9. Extension caches timetable locally
+10. User navigates to Scaler dashboard
+11. Extension matches class cards to timetable
+12. Classroom labels appear on cards
+```
+
+---
+
+## 6. HTML Timetable Parsing
+
+### HTML Export Findings
+
+**Google Sheets HTML Export Structure**:
+- HTML export preserves merged cell structure via `rowspan` and `colspan` attributes
+- Table structure includes `<thead>` for headers and `<tbody>` for data
+- Cell text content includes line breaks (`<br>`) for multi-line content
+- Background colors and styling are preserved in inline styles
+- Time column typically contains time ranges like "9:30 AM - 11:00 AM"
+- Day columns (Monday-Saturday) serve as the primary axis for class placement
+
+**Key Discovery**: HTML export is essential for complex timetables because:
+- CSV export loses merged cell information
+- Merged cells represent class blocks spanning multiple 15-minute intervals
+- Without merged cell data, accurate class duration cannot be inferred
+- Group sections (e.g., "2029 Batch Group B") are typically merged across all columns
+
+### Merged Cell Handling
+
+**Logical Grid Reconstruction**:
+HTML tables with `rowspan`/`colspan` cannot be processed as simple row-by-row iteration. The parser implements a logical grid reconstruction:
+
+```javascript
+// Raw HTML representation
+row 10: [time] [Monday class rowspan=4] [Tuesday ...]
+row 11: [11:00] [occupied by Monday class] [Tuesday ...]
+row 12: [11:15] [occupied by Monday class] [Tuesday ...]
+row 13: [11:30] [occupied by Monday class] [Tuesday ...]
+
+// Becomes logical grid with cell references
+grid[10][1] = { cell: MondayClass, rowSpan: 4 }
+grid[11][1] = { occupiedBy: MondayClass }
+grid[12][1] = { occupiedBy: MondayClass }
+grid[13][1] = { occupiedBy: MondayClass }
+```
+
+**No Duplicate Entries**: The parser ensures that a merged class block produces exactly ONE timetable entry, not multiple entries for each time slot.
+
+### Time Span Inference
+
+**Duration Calculation**:
+When a class cell spans multiple rows, the parser infers the end time from the last time slot covered:
+
+```javascript
+// Cell at row 10 with rowspan=4
+// Time slots: 10:00-10:15, 10:15-10:30, 10:30-10:45, 10:45-11:00
+// Result: Single entry with startTime="10:00", endTime="11:00"
+```
+
+**Time Parsing Support**:
+- 12-hour format: "9:30 AM - 11:00 AM"
+- 24-hour format: "09:30 - 11:00"
+- Variable spacing: "9:30AM-11:00AM"
+- Case-insensitive AM/PM
+
+### Classroom Text Extraction
+
+**Multi-line Cell Parsing**:
+Class blocks typically contain multiple lines of information:
+
+```
+MERN - 2029
+Grp B
+(Mrinal)
+Classroom A 1st floor
+```
+
+**Extraction Strategies**:
+
+**Course**: Extracts first word matching pattern like "MERN - 2029", "CML - 2029", "CN - 2029". Falls back to 2-5 letter uppercase words that aren't common terms.
+
+**Batch/Group**: Detects patterns like "Grp B", "Group C", "Batch A" and normalizes to "grp x" format.
+
+**Teacher**: Extracts text from parentheses, filtering out non-teacher content like "Grp B".
+
+**Classroom**: Looks for "Classroom X" pattern or lines containing "Class" or "Room" keywords, excluding lunch-related content.
+
+### Non-Class Block Detection
+
+**Ignored Content**:
+- **Lunch blocks**: Cells containing "Lunch" are marked as type="lunch" and excluded from classroom matching
+- **Group headers**: Cells like "2029 Batch Group B" are detected and skipped
+- **Empty cells**: Blank cells are ignored
+- **Headers**: Day headers and time labels are not processed as class entries
+
+### CSV vs HTML Behavior
+
+**CSV Limitations**:
+- Loses merged cell structure
+- Cannot infer accurate class duration
+- Cannot handle group sections spanning multiple columns
+- Suitable only for flat, simple timetables
+
+**HTML Advantages**:
+- Preserves merged cell structure
+- Accurate duration inference
+- Handles complex timetables with group sections
+- Supports multi-line cell content
+- Preserves visual structure for debugging
+
+### Source Selection Strategy
+
+**Intelligent Fallback**:
+```javascript
+fetchTimetableSourceWithSelection(source, preferHtml = true)
+```
+
+**HTML Preferred (default)**:
+1. Try HTML export first
+2. If HTML fails, fallback to CSV
+3. Track fallback usage and reason
+
+**CSV Preferred**:
+1. Try CSV first (for flat timetables)
+2. If CSV fails, fallback to HTML
+3. Track fallback usage and reason
+
+**Error Handling**:
+- Both formats failing: Clear error message with both failure reasons
+- Network errors: Specific error messages for 403 (access denied), 404 (not found)
+- Empty responses: Detected and reported
+
+### Known Limitations
+
+**HTML Parser Limitations**:
+- Requires DOMParser (available in browser context, not Node.js)
+- Assumes standard Google Sheets HTML export format
+- Time column detection relies on pattern matching (may fail with unusual formats)
+- Day column detection assumes standard weekday names
+- Group header detection uses pattern matching (may miss unusual formats)
+
+**CSV Parser Limitations**:
+- Cannot handle merged cells
+- Cannot infer accurate class duration
+- Requires specific column headers
+- Limited to flat timetable structures
+
+**Real Timetable Testing**:
+- HTML parser implemented and tested with realistic fixture
+- Fixture includes: group sections, merged class blocks, lunch, multiple courses
+- Real Google Sheet testing not performed (requires public sheet URL)
+- Parser architecture ready for real sheet integration
+
+### Implementation Status
+
+**Completed Modules**:
+- `timetableHtmlParser.js` - HTML structural parser with merged cell support
+- `timetableParser.js` - Updated with HTML parsing integration
+- `timetableFetcher.js` - Intelligent source selection (HTML → CSV fallback)
+- `tests/fixtures/classroom/scaler-weekly-timetable.html` - Realistic fixture
+- `tests/timetableHtmlParser.test.js` - 35 unit tests (all passing)
+
+**Test Coverage**:
+- HTML table structure parsing (rowspan, colspan)
+- Logical grid reconstruction
+- Time column and day column detection
+- Time range parsing (12-hour, 24-hour)
+- Course, batch, teacher, classroom extraction
+- Lunch block and group header detection
+- Merged class block duration inference
+- Source selection and fallback
+
+---
 
 ┌─────────────────────────────────────────────────────────────┐
 │                    Component Architecture                     │
